@@ -166,10 +166,34 @@ namespace ScreenConnect.ScTray
                         String name = sInt.name;
                         if (sInt.hostConnected) name = sInt.name + " (Connected)";
                         if (sInt.guestUser != "") name += " [" + sInt.guestUser + "]";
-                        MenuItem item = new MenuItem(name, delegate (Object sender2, EventArgs e2)
-                        {
-                            sInt.connect();
-                        });
+                        MenuItem item = new MenuItem(name);
+                        item.MenuItems.Add("");
+                        item.Popup += delegate (Object sender2, EventArgs e2)
+                          {
+                              item.MenuItems.Clear();
+                              MenuItem connect = new MenuItem("connect", delegate (Object sender3, EventArgs e3)
+                              {
+                                  sInt.connect();
+                              });
+                              item.MenuItems.Add(connect);
+                              MenuItem mDetails = new MenuItem("details");
+                              mDetails.MenuItems.Add("");
+                              mDetails.Popup += delegate (Object sender3, EventArgs e3)
+                              {
+                                  mDetails.MenuItems.Clear();
+                                  try
+                                  {
+                                      SCHostSessionDetails details = sInt.details;
+                                      if (details.machineName != null) mDetails.MenuItems.Add(new MenuItem("Name: " + details.machineName) { Enabled = false });
+                                      if (details.machineDomain != null) mDetails.MenuItems.Add(new MenuItem("Domain: " + details.machineDomain) { Enabled = false });
+                                      if (details.networkAddress != null) mDetails.MenuItems.Add(new MenuItem("IP: " + details.networkAddress) { Enabled = false });
+                                      if (details.processorName != null) mDetails.MenuItems.Add(new MenuItem("CPU: " + details.processorName) { Enabled = false });
+                                      if (details.systemMemoryAvailableMegabytes != null && details.systemMemoryTotalMegabytes != null) mDetails.MenuItems.Add(new MenuItem("RAM: " + details.systemMemoryAvailableMegabytes + "/" + details.systemMemoryTotalMegabytes + " MB available") { Enabled = false });
+                                  }
+                                  catch { }
+                              };
+                              item.MenuItems.Add(mDetails);
+                          };
                         if (!sInt.guestConnected) item.Enabled = false;
                         cat.MenuItems.Add(item);
                     }
