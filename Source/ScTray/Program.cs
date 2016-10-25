@@ -1,63 +1,27 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Net;
-using System.Windows.Forms;
-using System.Drawing;
+﻿using ScreenConnect.Integration;
 using Security.Windows.Forms;
-using ScreenConnect.Integration;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Net;
+using System.Text;
+using System.Windows.Forms;
 
 namespace ScreenConnect.ScTray
 {
-    class Program : Form
+    internal class Program : Form
     {
+        #region Private Fields
+
         private static SCHostInterface sc;
 
-        static void Main(string[] args)
-        {
-            WebRequest.DefaultWebProxy = null;
-            if (args.Length == 0)
-            {
-                MessageBox.Show("Parameter required: ScreenConnect URL", "ScreenConnect Tray", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-            String bUrl = args[0];
-            UserCredentialsDialog ucd = new UserCredentialsDialog(bUrl, "Login to ScreenConnect", "Enter ScreenConnect password");
-            while (true)
-            {
-                if (ucd.ShowDialog() == DialogResult.Cancel)
-                {
-                    return;
-                }
-                try
-                {
-                    sc = new SCHostInterface(bUrl, ucd.User, ucd.PasswordToString());
-                    ucd.ConfirmCredentials(true);
-                    break;
-                }
-                catch (WebException e)
-                {
-                    if (e.Status == WebExceptionStatus.ProtocolError)
-                    {
-                        ucd.Flags = UserCredentialsDialogFlags.IncorrectPassword;
-                        ucd.ConfirmCredentials(false);
-                        continue;
-                    }
-                    MessageBox.Show(e.ToString(), e.Message, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-                catch (Exception e)
-                {
-                    MessageBox.Show(e.ToString(), e.Message, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-            }
-            Application.Run(new Program());
-        }
-
         private NotifyIcon trayIcon;
+
         private ContextMenu trayMenu;
+
+        #endregion Private Fields
+
+        #region Public Constructors
 
         public Program()
         {
@@ -73,83 +37,9 @@ namespace ScreenConnect.ScTray
             trayIcon.Visible = true;
         }
 
-        void trayMenu_Popup(object sender, EventArgs e)
-        {
-            trayMenu.MenuItems.Clear();
-            trayMenu.MenuItems.Add("New Session", OnCreateSession);
-            MenuItem support = new MenuItem("Support");
-            buildMenu(support, sc.support);
-            MenuItem meet = new MenuItem("Meet");
-            buildMenu(meet, sc.meet);
-            MenuItem access = new MenuItem("Access");
-            buildMenu(access, sc.access);
+        #endregion Public Constructors
 
-            trayMenu.MenuItems.Add(support);
-            trayMenu.MenuItems.Add(meet);
-            trayMenu.MenuItems.Add(access);
-            trayMenu.MenuItems.Add("Exit", OnExit);
-        }
-
-        void buildMenu(MenuItem menu, List<SCHostCategory> type)
-        {
-            foreach (SCHostCategory c in type)
-            {
-                SCHostCategory cInt = c;
-                MenuItem cat = new MenuItem(c.name + " (" + c.count + ")");
-                cat.Popup += delegate(Object sender1, EventArgs e1)
-                {
-                    cat.MenuItems.Clear();
-                    foreach (SCHostSession s in cInt.sessions)
-                    {
-                        SCHostSession sInt = s;
-                        String name = sInt.name;
-                        if (sInt.hostConnected) name = sInt.name + " (Connected)";
-                        if (sInt.guestUser != "") name += " [" + sInt.guestUser + "]";
-                        MenuItem item = new MenuItem(name, delegate(Object sender2, EventArgs e2)
-                        {
-                            sInt.connect();
-                        });
-                        if (!sInt.guestConnected) item.Enabled = false;
-                        cat.MenuItems.Add(item);
-                    }
-                };
-                if (c.count > 0) cat.MenuItems.Add("");
-                menu.MenuItems.Add(cat);
-            }
-        }
-
-        protected override void OnLoad(EventArgs e)
-        {
-            Visible = false;
-            ShowInTaskbar = false;
-
-            base.OnLoad(e);
-        }
-
-        private void OnExit(object sender, EventArgs e)
-        {
-            Application.Exit();
-        }
-
-        private void OnCreateSession(object sender, EventArgs e)
-        {
-            String input = null;
-            DialogResult dResult = InputBox("Create Session", "Enter Session Name:",ref input);
-            if (dResult == DialogResult.OK)
-            {
-                sc.createSupportSession(input, true, null).connect();
-            }
-        }
-
-        protected override void Dispose(bool isDisposing)
-        {
-            if (isDisposing)
-            {
-                trayIcon.Dispose();
-            }
-
-            base.Dispose(isDisposing);
-        }
+        #region Public Methods
 
         public static DialogResult InputBox(string title, string promptText, ref string value)
         {
@@ -192,5 +82,136 @@ namespace ScreenConnect.ScTray
             value = textBox.Text;
             return dialogResult;
         }
+
+        #endregion Public Methods
+
+        #region Protected Methods
+
+        protected override void Dispose(bool isDisposing)
+        {
+            if (isDisposing)
+            {
+                trayIcon.Dispose();
+            }
+
+            base.Dispose(isDisposing);
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            Visible = false;
+            ShowInTaskbar = false;
+
+            base.OnLoad(e);
+        }
+
+        #endregion Protected Methods
+
+        #region Private Methods
+
+        private static void Main(string[] args)
+        {
+            WebRequest.DefaultWebProxy = null;
+            if (args.Length == 0)
+            {
+                MessageBox.Show("Parameter required: ScreenConnect URL", "ScreenConnect Tray", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            String bUrl = args[0];
+            UserCredentialsDialog ucd = new UserCredentialsDialog(bUrl, "Login to ScreenConnect", "Enter ScreenConnect password");
+            while (true)
+            {
+                if (ucd.ShowDialog() == DialogResult.Cancel)
+                {
+                    return;
+                }
+                try
+                {
+                    sc = new SCHostInterface(bUrl, ucd.User, ucd.PasswordToString());
+                    ucd.ConfirmCredentials(true);
+                    break;
+                }
+                catch (WebException e)
+                {
+                    if (e.Status == WebExceptionStatus.ProtocolError)
+                    {
+                        ucd.Flags = UserCredentialsDialogFlags.IncorrectPassword;
+                        ucd.ConfirmCredentials(false);
+                        continue;
+                    }
+                    MessageBox.Show(e.ToString(), e.Message, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                catch (Exception e)
+                {
+                    MessageBox.Show(e.ToString(), e.Message, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
+            Application.Run(new Program());
+        }
+
+        private void buildMenu(MenuItem menu, List<SCHostCategory> type)
+        {
+            foreach (SCHostCategory c in type)
+            {
+                SCHostCategory cInt = c;
+                MenuItem cat = new MenuItem(c.name + " (" + c.count + ")");
+                cat.Popup += delegate (Object sender1, EventArgs e1)
+                {
+                    cat.MenuItems.Clear();
+                    foreach (SCHostSession s in cInt.sessions)
+                    {
+                        SCHostSession sInt = s;
+                        String name = sInt.name;
+                        if (sInt.hostConnected) name = sInt.name + " (Connected)";
+                        if (sInt.guestUser != "") name += " [" + sInt.guestUser + "]";
+                        MenuItem item = new MenuItem(name, delegate (Object sender2, EventArgs e2)
+                        {
+                            sInt.connect();
+                        });
+                        if (!sInt.guestConnected) item.Enabled = false;
+                        cat.MenuItems.Add(item);
+                    }
+                };
+                if (c.count > 0) cat.MenuItems.Add("");
+                menu.MenuItems.Add(cat);
+            }
+        }
+
+        private void OnCreateSession(object sender, EventArgs e)
+        {
+            String input = null;
+            DialogResult dResult = InputBox("Create Session", "Enter Session Name:", ref input);
+            if (dResult == DialogResult.OK)
+            {
+                sc.createSupportSession(input, true, null).connect();
+            }
+        }
+
+        private void OnExit(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
+
+        private void trayMenu_Popup(object sender, EventArgs e)
+        {
+            trayMenu.MenuItems.Clear();
+            trayMenu.MenuItems.Add("New Session", OnCreateSession);
+            sc.refreshCategories();
+            MenuItem support = new MenuItem("Support");
+            buildMenu(support, sc.support);
+            MenuItem meet = new MenuItem("Meet");
+            buildMenu(meet, sc.meet);
+            MenuItem access = new MenuItem("Access");
+            buildMenu(access, sc.access);
+
+            trayMenu.MenuItems.Add(support);
+            trayMenu.MenuItems.Add(meet);
+            trayMenu.MenuItems.Add(access);
+            trayMenu.MenuItems.Add("Exit", OnExit);
+        }
+
+        #endregion Private Methods
     }
 }
