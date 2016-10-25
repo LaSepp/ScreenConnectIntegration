@@ -27,14 +27,23 @@ namespace ScreenConnect.Integration
         private const int sessionTypeMeet = 1;
         private const int sessionTypeSupport = 0;
         private string aspEventValidation;
+
         private string aspViewState;
+
         private String baseUrl;
+
         private CookieCollection cookies;
+
         private String encryptionKey;
+
         private String hostName;
+
         private NetworkCredential nc;
+
         private String relayPort;
+
         private String serverVersion;
+
         private String serviceAshx = "/Service.ashx";
 
         #endregion Private Fields
@@ -122,6 +131,28 @@ namespace ScreenConnect.Integration
             return url;
         }
 
+        internal SCHostSessionDetails getSessionDetails(SCHostSession session)
+        {
+            JObject gsd = JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetSessionDetails", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
+            SCHostSessionDetails details = new SCHostSessionDetails(session);
+            try
+            {
+                JObject gsdsession = gsd["Session"] as JObject;
+                details._networkAddress = gsdsession["GuestNetworkAddress"].ToString();
+                details._machineName = gsdsession["GuestMachineName"].ToString();
+                details._machineDomain = gsdsession["GuestMachineDomain"].ToString();
+                details._processorName = gsdsession["GuestProcessorName"].ToString();
+                details._processorVirtualCount = gsdsession["GuestProcessorVirtualCount"].ToString();
+                details._systemMemoryTotalMegabytes = gsdsession["GuestSystemMemoryTotalMegabytes"].ToString();
+                details._systemMemoryAvailableMegabytes = gsdsession["GuestSystemMemoryAvailableMegabytes"].ToString();
+                details._screenshotContentType = gsdsession["GuestScreenshotContentType"].ToString();
+                details._infoUpdateTime = gsdsession["GuestInfoUpdateTime"].ToString();
+                details._screenshot = Convert.FromBase64String(gsd["GuestScreenshotContent"].ToString());
+            }
+            catch { }
+            return details;
+        }
+
         internal List<SCHostSession> getSessions(String category, int mode)
         {
             List<SCHostSession> sl = new List<SCHostSession>();
@@ -134,7 +165,7 @@ namespace ScreenConnect.Integration
             JArray sss = (JArray)hsi[sssKey];
             foreach (JObject session in sss)
             {
-                SCHostSession scsession = new SCHostSession(this);
+                SCHostSession scsession = new SCHostSession(this, category);
                 if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
                 {
                     scsession._name = session["Name"].ToString();
