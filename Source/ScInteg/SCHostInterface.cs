@@ -1,50 +1,74 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Newtonsoft.Json;
-using System.Net;
-using System.Web;
-using System.Runtime.InteropServices;
+using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
+using System.Web;
 
 namespace ScreenConnect.Integration
 {
     public class SCHostInterface
     {
-        const int sessionTypeSupport = 0;
-        const int sessionTypeMeet = 1;
-        const int sessionTypeAccess = 2;
+        #region Public Fields
 
-        private String baseUrl;
-        private NetworkCredential nc;
-        private String hostName;
-        private String relayPort;
-        private String encryptionKey;
-        private String serverVersion;
-        public List<SCHostCategory> support;
-        public List<SCHostCategory> meet;
         public List<SCHostCategory> access;
+        public List<SCHostCategory> meet;
+        public List<SCHostCategory> support;
 
+        #endregion Public Fields
+
+        #region Private Fields
+
+        private const int sessionTypeAccess = 2;
+        private const int sessionTypeMeet = 1;
+        private const int sessionTypeSupport = 0;
+        private string aspEventValidation;
+        private string aspViewState;
+        private String baseUrl;
+        private CookieCollection cookies;
+        private String encryptionKey;
+        private String hostName;
+        private NetworkCredential nc;
+        private String relayPort;
+        private String serverVersion;
         private String serviceAshx = "/Service.ashx";
 
-        [DllImport("dfshim.dll", EntryPoint = "LaunchApplication", CharSet = CharSet.Unicode)]
-        private static extern int LaunchApplication(string UrlToDeploymentManifest, System.IntPtr dataMustBeNull, System.UInt32 flagsMustBeZero); 
+        #endregion Private Fields
+
+        #region Public Constructors
 
         public SCHostInterface(String url, String username, String password)
         {
-            this.baseUrl = url;
+            this.baseUrl = url.EndsWith("/") ? url.Remove(url.Length - 1) : url;
             this.nc = new NetworkCredential(username, password);
             serverVersion = getServerVersion();
+            if (serverVersion.StartsWith("ScreenConnect/6")) loginSc6();
             initServerConfig();
             initCategories();
+        }
+
+        #endregion Public Constructors
+
+        #region Public Methods
+
+        public byte[] createAccessSessionMSI(String name, params String[] customProperties)
+        {
+            return createAccessSession("msi", name, customProperties);
+        }
+
+        public byte[] createAccessSessionPKG(String name, params String[] customProperties)
+        {
+            return createAccessSession("pkg", name, customProperties);
         }
 
         public SCHostSession createSupportSession(String name, bool isPublic, String code)
         {
             JValue jVsessionID;
-            if (serverVersion.StartsWith("ScreenConnect/4") || serverVersion.StartsWith("ScreenConnect/5"))
+            if (serverVersion.StartsWith("ScreenConnect/4") || serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
             {
                 jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new Object[] { sessionTypeSupport, name, isPublic, code, new String[0] })));
             }
@@ -63,191 +87,47 @@ namespace ScreenConnect.Integration
             throw new Exception("Error creating Session");
         }
 
-        public byte[] createAccessSessionMSI(String name, params String[] customProperties)
-        {
-            return createAccessSession("msi", name, customProperties);
-        }
-
-        public byte[] createAccessSessionPKG(String name, params String[] customProperties)
-        {
-            return createAccessSession("pkg", name, customProperties);
-        }
-
-        private byte[] createAccessSession(String type, String name, params String[] customProperties)
-        {
-            String url;
-            if (serverVersion.StartsWith("ScreenConnect/5"))
-            {
-                switch (type)
-                {
-                    case "msi":
-                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.msi?";
-                        break;
-                    case "exe":
-                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.exe?";
-                        break;
-                    case "pkg":
-                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.pkg?";
-                        break;
-                    case "deb":
-                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.deb?";
-                        break;
-                    case "rpm":
-                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.rpm?";
-                        break;
-                    case "sh":
-                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.sh?";
-                        break;
-                    default:
-                        throw new NotSupportedException("Only types msi, exe, pkg, deb, rpm, sh supported in this version of ScreenConnect");
-                }
-                url += "h=" + hostName + "&";
-                url += "p=" + relayPort + "&";
-                url += "k=" + encryptionKey + "&";
-                url += "e=Access&y=Guest&";
-                url += "t=" + HttpUtility.UrlEncode(name);
-                foreach (String p in customProperties)
-                {
-                    url += "&c=" + HttpUtility.UrlEncode(p);
-                }
-            }
-            else if (serverVersion.StartsWith("ScreenConnect/4"))
-            {
-                url = getInstallerUrlV4(type, name, customProperties);
-            }
-            else
-            {
-                switch (type)
-                {
-                    case "msi":
-                        url = getInstallerUrlV3(false, true, name);
-                        break;
-                    case "pkg":
-                        url = getInstallerUrlV3(true, false, name);
-                        break;
-                    default:
-                        throw new NotSupportedException("Only types msi and pkg supported in this version of ScreenConnect");
-                }
-            }
-            url = url.Replace("\"", "");
-            return HttpDownload(baseUrl + "/" + url);
-        }
-
-        private String getServerVersion()
-        {
-            System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl);
-            System.Net.WebResponse resp = req.GetResponse();
-            String version = resp.Headers["Server"].Split(' ')[0];
-
-            if (version.StartsWith("ScreenConnect/5"))
-            {
-                serviceAshx = "/Services/PageService.ashx";
-            }
-
-            return version;
-        }
-
         public void refreshCategories()
         {
             initCategories();
         }
 
-        private void initServerConfig()
+        #endregion Public Methods
+
+        #region Internal Methods
+
+        internal String getLaunchURL(SCHostSession session)
         {
-            String[] instURLSplit;
-            if (serverVersion.StartsWith("ScreenConnect/5"))
+            String appName = "Elsinore.ScreenConnect.WindowsClient.application";
+            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6") || serverVersion.StartsWith("ScreenConnect/4.3"))
             {
-                // SC 5 Script Parser Hack
-                String script = HttpPost(baseUrl + "/Script.ashx", "").Replace('\r',' ').Replace('\n',' ');
-                String script_stripped = script.Remove(0, 5);
-                script_stripped = script_stripped.Remove(script_stripped.Length - 1);
-                String clp = script_stripped.Remove(0, script_stripped.IndexOf("clp") + 5);
-                clp = clp.Remove(clp.IndexOf("}") + 1);
-                JObject SC = JsonConvert.DeserializeObject<JObject>(clp);
-                hostName = SC.GetValue("h").ToString();
-                relayPort = SC.GetValue("p").ToString();
-                encryptionKey = HttpUtility.UrlEncode(SC.GetValue("k").ToString());
+                appName = "Elsinore.ScreenConnect.Client.application";
+            }
+            String url = baseUrl + "/Bin/" + appName + "?";
+            url += "h=" + hostName + "&";
+            url += "p=" + relayPort + "&";
+            url += "k=" + encryptionKey + "&";
+            url += "s=" + session._sessionID + "&";
+            if (serverVersion.StartsWith("ScreenConnect/4") || serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            {
+                url += "i=" + HttpUtility.UrlEncode(session._name) + "&";
             }
             else
             {
-                if (serverVersion.StartsWith("ScreenConnect/4"))
-                {
-                    instURLSplit = getInstallerUrlV4("msi", "", new String[0]).Split(new char[] { '?', '&' });
-                }
-                else
-                {
-                    instURLSplit = getInstallerUrlV3(false, false, "name").Split(new char[] { '?', '&' });
-                }
-                foreach (String kvString in instURLSplit)
-                {
-                    String[] kv = kvString.Split('=');
-                    if (kv.Length > 1)
-                    {
-                        if (kv[0] == "h") hostName = kv[1];
-                        if (kv[0] == "p") relayPort = kv[1];
-                        if (kv[0] == "k") encryptionKey = kv[1];
-                    }
-                }
+                url += "t=" + HttpUtility.UrlEncode(session._name) + "&";
             }
+            url += "n=" + HttpUtility.UrlEncode(session._token) + "&";
+            url += "e=" + session._type + "&";
+            url += "y=Host";
+            return url;
         }
 
-        private void initCategories()
-        {
-            JObject hsi = getHostSessionInfo();
-            String[] sgsKeys = new String[]{"sgs","SessionGroupSummaries","PathSessionGroupSummaries"};
-            JArray sgs = null;
-            foreach (String sgsKey in sgsKeys)
-            {
-                try
-                {
-                    sgs = (JArray)hsi[sgsKey];
-                }
-                catch
-                {
-                }
-                if (sgs != null) break;
-            }
-            initCategories(sgs);
-
-        }
-
-        private void initCategories(JArray sgs)
-        {
-            String nKey = "n";
-            String stKey = "st";
-            String scKey = "sc";
-            if (serverVersion.StartsWith("ScreenConnect/5"))
-            {
-                nKey = "Name";
-                stKey = "SessionType";
-                scKey = "SessionCount";
-            }
-            support = new List<SCHostCategory>();
-            meet = new List<SCHostCategory>();
-            access = new List<SCHostCategory>();
-            if (sgs[0] is JArray) sgs = (JArray)sgs[0];
-            foreach (JObject category in sgs)
-            {
-                String name = category[nKey].Value<String>();
-                int type = category[stKey].Value<int>();
-                int count = category[scKey].Value<int>();
-                List<SCHostCategory> catList = null;
-                if (type == sessionTypeSupport) catList = support;
-                if (type == sessionTypeMeet) catList = meet;
-                if (type == sessionTypeAccess) catList = access;
-                SCHostCategory cat = new SCHostCategory(this);
-                cat._count = count;
-                cat._name = name;
-                catList.Add(cat);
-            }
-        }
-
-        internal List<SCHostSession> getSessions(String category)
+        internal List<SCHostSession> getSessions(String category, int mode)
         {
             List<SCHostSession> sl = new List<SCHostSession>();
-            JObject hsi = getHostSessionInfo(category);
+            JObject hsi = getHostSessionInfo(category, mode);
             String sssKey = "sss";
-            if (serverVersion.StartsWith("ScreenConnect/5"))
+            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
             {
                 sssKey = "Sessions";
             }
@@ -255,7 +135,7 @@ namespace ScreenConnect.Integration
             foreach (JObject session in sss)
             {
                 SCHostSession scsession = new SCHostSession(this);
-                if (serverVersion.StartsWith("ScreenConnect/5"))
+                if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
                 {
                     scsession._name = session["Name"].ToString();
                     scsession._sessionID = session["SessionID"].ToString();
@@ -267,7 +147,8 @@ namespace ScreenConnect.Integration
                         String domain = session["GuestLoggedOnUserDomain"].ToString();
                         scsession._guestUser = (domain == "" ? "" : domain + @"\") + session["GuestLoggedOnUserName"].ToString();
                     }
-                    catch {
+                    catch
+                    {
                         // Attributes not supported
                     }
                     List<String> custom = new List<String>();
@@ -313,13 +194,14 @@ namespace ScreenConnect.Integration
                     scsession._sessionID = clp["s"].Value<String>();
                     scsession._token = clp["n"].Value<String>();
                     List<String> custom = new List<String>();
-                    foreach(JValue cobj in (JArray)session["cps"]){
+                    foreach (JValue cobj in (JArray)session["cps"])
+                    {
                         custom.Add(cobj.Value<String>());
                     }
                     scsession._custom = custom.ToArray();
                 }
                 String stKey = "st";
-                if (serverVersion.StartsWith("ScreenConnect/5"))
+                if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
                 {
                     stKey = "SessionType";
                 }
@@ -338,39 +220,141 @@ namespace ScreenConnect.Integration
             if (result != 0) throw new Exception("Error launching Host Client: " + result);
         }
 
-        internal String getLaunchURL(SCHostSession session)
+        #endregion Internal Methods
+
+        #region Private Methods
+
+        [DllImport("dfshim.dll", EntryPoint = "LaunchApplication", CharSet = CharSet.Unicode)]
+        private static extern int LaunchApplication(string UrlToDeploymentManifest, System.IntPtr dataMustBeNull, System.UInt32 flagsMustBeZero);
+
+        private String buildHostSessionInfoParam(String category)
         {
-            String appName = "Elsinore.ScreenConnect.WindowsClient.application";
-            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/4.3"))
+            Object info = new Object[] { category, null, null, 0 };
+            return JsonConvert.SerializeObject(info);
+        }
+
+        private String buildHostSessionInfoParamV2(String category)
+        {
+            Object info = new Object[] { new String[] { category }, null, null, 0 };
+            return JsonConvert.SerializeObject(info);
+        }
+
+        private String buildHostSessionInfoParamV3(int mode, String category)
+        {
+            Object info = new Object[] { mode, category == null ? new String[0] : new String[] { category }, null, null, 0 };
+            return JsonConvert.SerializeObject(info);
+        }
+
+        private byte[] createAccessSession(String type, String name, params String[] customProperties)
+        {
+            String url;
+            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
             {
-                appName = "Elsinore.ScreenConnect.Client.application";
+                switch (type)
+                {
+                    case "msi":
+                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.msi?";
+                        break;
+
+                    case "exe":
+                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.exe?";
+                        break;
+
+                    case "pkg":
+                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.pkg?";
+                        break;
+
+                    case "deb":
+                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.deb?";
+                        break;
+
+                    case "rpm":
+                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.rpm?";
+                        break;
+
+                    case "sh":
+                        url = "Bin/Elsinore.ScreenConnect.ClientSetup.sh?";
+                        break;
+
+                    default:
+                        throw new NotSupportedException("Only types msi, exe, pkg, deb, rpm, sh supported in this version of ScreenConnect");
+                }
+                url += "h=" + hostName + "&";
+                url += "p=" + relayPort + "&";
+                url += "k=" + encryptionKey + "&";
+                url += "e=Access&y=Guest&";
+                url += "t=" + HttpUtility.UrlEncode(name);
+                foreach (String p in customProperties)
+                {
+                    url += "&c=" + HttpUtility.UrlEncode(p);
+                }
             }
-            String url = baseUrl + "/Bin/" + appName + "?";
-            url += "h=" + hostName + "&";
-            url += "p=" + relayPort + "&";
-            url += "k=" + encryptionKey + "&";
-            url += "s=" + session._sessionID + "&";
-            if (serverVersion.StartsWith("ScreenConnect/4") || serverVersion.StartsWith("ScreenConnect/5"))
+            else if (serverVersion.StartsWith("ScreenConnect/4"))
             {
-                url += "i=" + HttpUtility.UrlEncode(session._name) + "&";
+                url = getInstallerUrlV4(type, name, customProperties);
             }
             else
             {
-                url += "t=" + HttpUtility.UrlEncode(session._name) + "&";
+                switch (type)
+                {
+                    case "msi":
+                        url = getInstallerUrlV3(false, true, name);
+                        break;
+
+                    case "pkg":
+                        url = getInstallerUrlV3(true, false, name);
+                        break;
+
+                    default:
+                        throw new NotSupportedException("Only types msi and pkg supported in this version of ScreenConnect");
+                }
             }
-            url += "n=" + HttpUtility.UrlEncode(session._token) + "&";
-            url += "e=" + session._type + "&";
-            url += "y=Host";
-            return url;
+            url = url.Replace("\"", "");
+            return HttpDownload(baseUrl + "/" + url);
         }
 
-        private JObject getHostSessionInfo()
+        // http://stackoverflow.com/questions/15103513/httpwebresponse-cookies-empty-despite-set-cookie-header-no-redirect
+        private void fixCookies(HttpWebRequest request, HttpWebResponse response)
         {
-            return getHostSessionInfo(null);
+            for (int i = 0; i < response.Headers.Count; i++)
+            {
+                string name = response.Headers.GetKey(i);
+                if (name != "Set-Cookie")
+                    continue;
+                string value = response.Headers.Get(i);
+                foreach (var singleCookie in value.Split(','))
+                {
+                    Match match = Regex.Match(singleCookie, "(.+?)=(.+?);");
+                    if (match.Captures.Count == 0)
+                        continue;
+                    try
+                    {
+                        response.Cookies.Add(
+                            new Cookie(
+                                match.Groups[1].ToString(),
+                                match.Groups[2].ToString(),
+                                "/",
+                                request.Address.Host.Split(':')[0]));
+                    }
+                    catch
+                    {
+                        // Ignore Malformed Cookies
+                    }
+                }
+            }
         }
 
-        private JObject getHostSessionInfo(String category)
+        private JObject getHostSessionInfo(int mode = 0)
         {
+            return getHostSessionInfo(null, mode);
+        }
+
+        private JObject getHostSessionInfo(String category, int mode)
+        {
+            if (serverVersion.StartsWith("ScreenConnect/6"))
+            {
+                return JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParamV3(mode, category))); // Mode 2: Access Sessions
+            }
             try
             {
                 return JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParam(category)));
@@ -392,38 +376,18 @@ namespace ScreenConnect.Integration
             return url;
         }
 
-        private String buildHostSessionInfoParam(String category)
+        private String getServerVersion()
         {
-            Object info = new Object[] { category, null, null, 0 };
-            return JsonConvert.SerializeObject(info);
-        }
-
-        private String buildHostSessionInfoParamV2(String category)
-        {
-            Object info = new Object[] { new String[] { category }, null, null, 0 };
-            return JsonConvert.SerializeObject(info);
-        }
-
-        private string HttpPost(String url, string Parameters)
-        {
-            HttpWebRequest req = (HttpWebRequest)HttpWebRequest.Create(url);
-            req.UserAgent = "ScreenConnect Integration Library";
-            req.Timeout = 10000;
-            req.Credentials = nc;
-            //req.ContentType = "application/x-www-form-urlencoded";
-            req.ContentType = "text/plain; charset=UTF-8";
-            req.Method = "POST";
-            byte[] bytes = System.Text.Encoding.ASCII.GetBytes(Parameters);
-            req.ContentLength = bytes.Length;
-            System.IO.Stream os = req.GetRequestStream();
-            os.Write(bytes, 0, bytes.Length);
-            os.Close();
+            System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl);
             System.Net.WebResponse resp = req.GetResponse();
-            if (resp == null) return null;
-            System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
-            String respStr = sr.ReadToEnd().Trim();
-            respStr = Regex.Replace(respStr, @"\\u([\dA-Fa-f]{4})", v => ((char)Convert.ToInt32(v.Groups[1].Value, 16)).ToString()).Replace("%25", "%");
-            return respStr;
+            String version = resp.Headers["Server"].Split(' ')[0];
+
+            if (version.StartsWith("ScreenConnect/5") || version.StartsWith("ScreenConnect/6"))
+            {
+                serviceAshx = "/Services/PageService.ashx";
+            }
+
+            return version;
         }
 
         private byte[] HttpDownload(String url)
@@ -444,5 +408,199 @@ namespace ScreenConnect.Integration
             }
             return ms.ToArray();
         }
+
+        private string HttpPost(String url, string Parameters, Boolean isLoginRequest = false)
+        {
+            HttpWebRequest req = (HttpWebRequest)HttpWebRequest.Create(url);
+            if (isLoginRequest) req.AllowAutoRedirect = false;
+            req.UserAgent = "ScreenConnect Integration Library";
+            req.Timeout = 10000;
+            req.Credentials = nc;
+            if (this.cookies != null)
+            {
+                req.CookieContainer = new CookieContainer();
+                req.CookieContainer.Add(this.cookies);
+            }
+            if (isLoginRequest)
+            {
+                req.ContentType = "application/x-www-form-urlencoded";
+            }
+            else
+            {
+                req.ContentType = "application/json; charset=UTF-8";
+            }
+            req.Method = "POST";
+            byte[] bytes = System.Text.Encoding.ASCII.GetBytes(Parameters);
+            req.ContentLength = bytes.Length;
+            System.IO.Stream os = req.GetRequestStream();
+            os.Write(bytes, 0, bytes.Length);
+            os.Close();
+            HttpWebResponse resp = req.GetResponse() as HttpWebResponse;
+            if (resp == null) return null;
+            if (isLoginRequest)
+            {
+                fixCookies(req, resp);
+                this.cookies = resp.Cookies;
+            }
+            System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
+            String respStr = sr.ReadToEnd().Trim();
+            respStr = Regex.Replace(respStr, @"\\u([\dA-Fa-f]{4})", v => ((char)Convert.ToInt32(v.Groups[1].Value, 16)).ToString()).Replace("%25", "%");
+            return respStr;
+        }
+
+        private void initCategories()
+        {
+            int[] modes = new int[] { -1 };
+            if (serverVersion.StartsWith("ScreenConnect/6"))
+            {
+                modes = new int[] { 0, 1, 2 };
+            }
+            foreach (int mode in modes)
+            {
+                JObject hsi = getHostSessionInfo(mode);
+                String[] sgsKeys = new String[] { "sgs", "SessionGroupSummaries", "PathSessionGroupSummaries" };
+                JArray sgs = null;
+                foreach (String sgsKey in sgsKeys)
+                {
+                    try
+                    {
+                        sgs = (JArray)hsi[sgsKey];
+                    }
+                    catch
+                    {
+                    }
+                    if (sgs != null) break;
+                }
+                initCategories(sgs, mode);
+            }
+        }
+
+        private void initCategories(JArray sgs, int mode)
+        {
+            String nKey = "n";
+            String stKey = "st";
+            String scKey = "sc";
+            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            {
+                nKey = "Name";
+                stKey = "SessionType";
+                scKey = "SessionCount";
+            }
+            switch (mode)
+            {
+                case sessionTypeSupport:
+                    support = new List<SCHostCategory>();
+                    break;
+
+                case sessionTypeMeet:
+                    meet = new List<SCHostCategory>();
+                    break;
+
+                case sessionTypeAccess:
+                    access = new List<SCHostCategory>();
+                    break;
+
+                default:
+
+                    support = new List<SCHostCategory>();
+                    meet = new List<SCHostCategory>();
+                    access = new List<SCHostCategory>();
+                    break;
+            }
+            if (sgs[0] is JArray) sgs = (JArray)sgs[0];
+            foreach (JObject category in sgs)
+            {
+                String name = category[nKey].Value<String>();
+                int type = category[stKey].Value<int>();
+                int count = category[scKey].Value<int>();
+                List<SCHostCategory> catList = null;
+                if (type == sessionTypeSupport) catList = support;
+                if (type == sessionTypeMeet) catList = meet;
+                if (type == sessionTypeAccess) catList = access;
+                SCHostCategory cat = new SCHostCategory(this, mode);
+                cat._count = count;
+                cat._name = name;
+                catList.Add(cat);
+            }
+        }
+
+        private void initServerConfig()
+        {
+            String[] instURLSplit;
+            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            {
+                // SC 5 Script Parser Hack
+                String script = HttpPost(baseUrl + "/Script.ashx", "").Replace('\r', ' ').Replace('\n', ' ');
+                String script_stripped = script.Remove(0, 5);
+                script_stripped = script_stripped.Remove(script_stripped.Length - 1);
+                String clp = script_stripped.Remove(0, script_stripped.IndexOf("clp") + 5);
+                clp = clp.Remove(clp.IndexOf("}") + 1);
+                JObject SC = JsonConvert.DeserializeObject<JObject>(clp);
+                hostName = SC.GetValue("h").ToString();
+                relayPort = SC.GetValue("p").ToString();
+                encryptionKey = HttpUtility.UrlEncode(SC.GetValue("k").ToString());
+            }
+            else
+            {
+                if (serverVersion.StartsWith("ScreenConnect/4"))
+                {
+                    instURLSplit = getInstallerUrlV4("msi", "", new String[0]).Split(new char[] { '?', '&' });
+                }
+                else
+                {
+                    instURLSplit = getInstallerUrlV3(false, false, "name").Split(new char[] { '?', '&' });
+                }
+                foreach (String kvString in instURLSplit)
+                {
+                    String[] kv = kvString.Split('=');
+                    if (kv.Length > 1)
+                    {
+                        if (kv[0] == "h") hostName = kv[1];
+                        if (kv[0] == "p") relayPort = kv[1];
+                        if (kv[0] == "k") encryptionKey = kv[1];
+                    }
+                }
+            }
+        }
+
+        private void loginSc6()
+        {
+            System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl + "/Login");
+            System.Net.WebResponse resp = req.GetResponse();
+            System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
+            String respStr = sr.ReadToEnd().Trim();
+            updateViewstate(respStr);
+            String loginString = "";
+            loginString += "__EVENTARGUMENT=&";
+            loginString += "__EVENTTARGET=&";
+            loginString += "__LASTFOCUS=&";
+            loginString += "__VIEWSTATE=" + HttpUtility.UrlEncode(aspViewState) + "&";
+            loginString += "__VIEWSTATEGENERATOR=" + HttpUtility.UrlEncode(aspEventValidation) + "&";
+            loginString += HttpUtility.UrlEncode("ctl00$Main$ctl03") + "=" + HttpUtility.UrlEncode("Login") + "&";
+            loginString += HttpUtility.UrlEncode("ctl00$Main$passwordBox") + "=" + HttpUtility.UrlEncode(nc.Password) + "&";
+            loginString += HttpUtility.UrlEncode("ctl00$Main$userNameBox") + "=" + HttpUtility.UrlEncode(nc.UserName);
+            HttpPost(baseUrl + "/Login", loginString, true);
+        }
+
+        private void updateViewstate(string respStr)
+        {
+            try
+            {
+                // get the page ViewState
+                string viewStateFlag = "id=\"__VIEWSTATE\" value=\"";
+                int i = respStr.IndexOf(viewStateFlag) + viewStateFlag.Length;
+                int j = respStr.IndexOf("\"", i);
+                aspViewState = respStr.Substring(i, j - i);
+
+                // get page EventValidation
+                string eventValidationFlag = "id=\"__VIEWSTATEGENERATOR\" value=\"";
+                i = respStr.IndexOf(eventValidationFlag) + eventValidationFlag.Length;
+                j = respStr.IndexOf("\"", i);
+                aspEventValidation = respStr.Substring(i, j - i);
+            }
+            catch { }
+        }
+
+        #endregion Private Methods
     }
 }
