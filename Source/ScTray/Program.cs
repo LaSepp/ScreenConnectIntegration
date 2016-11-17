@@ -176,6 +176,23 @@ namespace ScreenConnect.ScTray
                                   sInt.connect();
                               });
                               item.MenuItems.Add(connect);
+                              MenuItem runcommand = new MenuItem("run command", delegate (Object sender3, EventArgs e3)
+                              {
+                                  String input = null;
+                                  DialogResult dResult = InputBox("Run Command", "Enter Command:", ref input);
+                                  if (dResult == DialogResult.OK)
+                                  {
+                                      try
+                                      {
+                                          MessageBox.Show(sInt.runCommand(input), "Command Result");
+                                      }
+                                      catch (Exception e)
+                                      {
+                                          MessageBox.Show(e.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                      }
+                                  }
+                              });
+                              item.MenuItems.Add(runcommand);
                               MenuItem mDetails = new MenuItem("details");
                               mDetails.MenuItems.Add("");
                               mDetails.Popup += delegate (Object sender3, EventArgs e3)
