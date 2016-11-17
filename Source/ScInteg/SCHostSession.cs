@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace ScreenConnect.Integration
 {
@@ -71,6 +72,22 @@ namespace ScreenConnect.Integration
         public String getLaunchURL()
         {
             return _interface.getLaunchURL(this);
+        }
+
+        public String runCommand(String command)
+        {
+            _interface.addEventToSession(this, SCHostSessionEventType.QueuedCommand, command);
+            for (int i = 0; i < 15; i++)
+            {
+                Thread.Sleep(1000);
+                SCHostSessionEvent[] events = details.getEvents(SCHostSessionEventType.QueuedCommand, SCHostSessionEventType.RanCommand);
+                int c = events.Length - 1;
+                if (events[c].EventType == SCHostSessionEventType.RanCommand)
+                {
+                    if (c > 0 && events[c - 1].EventType == SCHostSessionEventType.QueuedCommand && events[c - 1].Data == command) return events[c].Data;
+                }
+            }
+            throw new TimeoutException("Command execution timed out.");
         }
 
         #endregion Public Methods

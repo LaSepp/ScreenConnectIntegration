@@ -70,6 +70,7 @@
     <Compile Include="SCHostInterface.cs" />
     <Compile Include="SCHostSession.cs" />
     <Compile Include="SCHostSessionDetails.cs" />
+    <Compile Include="SCHostSessionEvent.cs" />
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">

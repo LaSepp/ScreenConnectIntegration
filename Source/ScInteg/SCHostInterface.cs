@@ -26,6 +26,7 @@ namespace ScreenConnect.Integration
         private const int sessionTypeAccess = 2;
         private const int sessionTypeMeet = 1;
         private const int sessionTypeSupport = 0;
+        private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         private string aspEventValidation;
 
         private string aspViewState;
@@ -105,6 +106,11 @@ namespace ScreenConnect.Integration
 
         #region Internal Methods
 
+        internal void addEventToSession(SCHostSession session, SCHostSessionEventType type, String data)
+        {
+            HttpPost(baseUrl + serviceAshx + "/AddEventToSessions", JsonConvert.SerializeObject(new object[] { session.category, new object[] { session.sessionID }, (int)type, data }));
+        }
+
         internal String getLaunchURL(SCHostSession session)
         {
             String appName = "Elsinore.ScreenConnect.WindowsClient.application";
@@ -148,6 +154,48 @@ namespace ScreenConnect.Integration
                 details._screenshotContentType = gsdsession["GuestScreenshotContentType"].ToString();
                 details._infoUpdateTime = gsdsession["GuestInfoUpdateTime"].ToString();
                 details._screenshot = Convert.FromBase64String(gsd["GuestScreenshotContent"].ToString());
+            }
+            catch { }
+            try
+            {
+                List<SCHostSessionEvent> eventlist = new List<SCHostSessionEvent>();
+                double basetime = gsd["BaseTime"].Value<double>();
+                JArray events = gsd["Events"] as JArray;
+                JArray connections = gsd["Connections"] as JArray;
+                foreach (JObject evt in events)
+                {
+                    try
+                    {
+                        SCHostSessionEvent e = new Integration.SCHostSessionEvent();
+                        e.ConnectionId = Guid.Empty;
+                        e.Data = evt["Data"].Value<String>();
+                        e.EventId = new Guid(evt["EventID"].ToString());
+                        e.EventType = (SCHostSessionEventType)evt["EventType"].Value<int>();
+                        e.Host = evt["Host"].Value<String>();
+                        e.Time = UnixEpoch.AddMilliseconds(basetime - evt["Time"].Value<long>());
+                        eventlist.Add(e);
+                    }
+                    catch { }
+                }
+                foreach (JObject conn in connections)
+                {
+                    foreach (JObject evt in conn["Events"] as JArray)
+                    {
+                        try
+                        {
+                            SCHostSessionEvent e = new Integration.SCHostSessionEvent();
+                            e.ConnectionId = new Guid(conn["ConnectionID"].ToString());
+                            e.Data = evt["Data"].Value<String>();
+                            e.EventId = new Guid(evt["EventID"].ToString());
+                            e.EventType = (SCHostSessionEventType)evt["EventType"].Value<int>();
+                            e.Host = conn["ParticipantName"].Value<String>();
+                            e.Time = UnixEpoch.AddMilliseconds(basetime - evt["Time"].Value<long>());
+                            eventlist.Add(e);
+                        }
+                        catch { }
+                    }
+                }
+                details._events = eventlist.ToArray();
             }
             catch { }
             return details;
