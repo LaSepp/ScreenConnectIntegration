@@ -131,6 +131,11 @@ namespace ScreenConnect.Integration
             {
                 url += "t=" + HttpUtility.UrlEncode(session._name) + "&";
             }
+            if (session._token == null)
+            {
+                JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
+                session._token = accessTokenInfo.ToString();
+            }
             url += "n=" + HttpUtility.UrlEncode(session._token) + "&";
             url += "e=" + session._type + "&";
             url += "y=Host";
@@ -218,7 +223,7 @@ namespace ScreenConnect.Integration
                 {
                     scsession._name = session["Name"].ToString();
                     scsession._sessionID = session["SessionID"].ToString();
-                    scsession._token = session["AccessToken"].ToString();
+                    try { scsession._token = session["AccessToken"].ToString(); } catch { }
                     scsession._host = session["Host"].ToString();
                     try
                     {
