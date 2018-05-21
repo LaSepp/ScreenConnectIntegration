@@ -1,4 +1,5 @@
 ﻿using ScreenConnect.Integration;
+using ScreenConnect.Integration.Exceptions;
 using Security.Windows.Forms;
 using System;
 using System.Collections.Generic;
@@ -119,17 +120,44 @@ namespace ScreenConnect.ScTray
             }
             String bUrl = args[0];
             UserCredentialsDialog ucd = new UserCredentialsDialog(bUrl, "Login to ScreenConnect", "Enter ScreenConnect password");
+            String oneTimePassword = null;
+            sc = new SCHostInterface(bUrl);
             while (true)
             {
-                if (ucd.ShowDialog() == DialogResult.Cancel)
+                if (oneTimePassword == null && ucd.ShowDialog() == DialogResult.Cancel)
                 {
                     return;
                 }
                 try
                 {
-                    sc = new SCHostInterface(bUrl, ucd.User, ucd.PasswordToString());
+                    if (oneTimePassword == null)
+                    {
+                        sc.Login(ucd.User, ucd.PasswordToString());
+                    }
+                    else
+                    {
+                        try
+                        {
+                            sc.LoginOneTimePassword(oneTimePassword);
+                        }
+                        finally
+                        {
+                            oneTimePassword = null;
+                        }
+                    }
                     ucd.ConfirmCredentials(true);
                     break;
+                }
+                catch (ScreenConnectAuthenticationException e)
+                {
+                    if (e.OneTimePasswordRequired)
+                    {
+                        DialogResult dResult = InputBox("One Time Password", "Enter One Time Password:", ref oneTimePassword);
+                        if (dResult == DialogResult.OK) continue;
+                    }
+                    ucd.Flags = UserCredentialsDialogFlags.IncorrectPassword;
+                    ucd.ConfirmCredentials(false);
+                    continue;
                 }
                 catch (WebException e)
                 {

@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using ScreenConnect.Integration.Exceptions;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -39,26 +40,37 @@ namespace ScreenConnect.Integration
 
         private String hostName;
 
+        private String LoginResult = null;
         private NetworkCredential nc;
 
         private String relayPort;
 
+        private string sc6loginbuttonid = null;
         private String serverVersion;
 
         private String serviceAshx = "/Service.ashx";
 
         #endregion Private Fields
 
+        #region Public Properties
+
+        public String LoginErrorCode { get { return LoginResult; } }
+        public Boolean NoLoginError { get { return LoginResult == null || LoginResult == ""; } }
+        public Boolean OneTimePasswordRequired { get { return LoginResult == "OneTimePasswordInvalid"; } }
+
+        #endregion Public Properties
+
         #region Public Constructors
 
-        public SCHostInterface(String url, String username, String password)
+        public SCHostInterface(String url)
         {
             this.baseUrl = url.EndsWith("/") ? url.Remove(url.Length - 1) : url;
-            this.nc = new NetworkCredential(username, password);
             serverVersion = getServerVersion();
-            if (serverVersion.StartsWith("ScreenConnect/6")) loginSc6();
-            initServerConfig();
-            initCategories();
+        }
+
+        public SCHostInterface(String url, String username, String password, String oneTimePassword = null) : this(url)
+        {
+            Login(username, password, oneTimePassword);
         }
 
         #endregion Public Constructors
@@ -95,6 +107,29 @@ namespace ScreenConnect.Integration
                 }
             }
             throw new Exception("Error creating Session");
+        }
+
+        public void Login(String username, String password, String oneTimePassword = null)
+        {
+            this.nc = new NetworkCredential(username, password);
+            if (serverVersion.StartsWith("ScreenConnect/6")) loginSc6();
+            if (oneTimePassword != null)
+            {
+                LoginOneTimePassword(oneTimePassword);
+                return;
+            }
+            if (OneTimePasswordRequired) throw new ScreenConnectAuthenticationException("One Time Password needed", LoginResult);
+            if (!NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + LoginResult, LoginResult);
+            initServerConfig();
+            initCategories();
+        }
+
+        public void LoginOneTimePassword(String oneTimePassword)
+        {
+            if (oneTimePassword != null) loginSc6Otp(oneTimePassword);
+            if (!NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + LoginResult, LoginResult);
+            initServerConfig();
+            initCategories();
         }
 
         public void refreshCategories()
@@ -523,6 +558,7 @@ namespace ScreenConnect.Integration
             if (resp == null) return null;
             if (isLoginRequest)
             {
+                try { LoginResult = resp.GetResponseHeader("X-Login-Result"); } catch { }
                 fixCookies(req, resp);
                 this.cookies = resp.Cookies;
             }
@@ -654,16 +690,35 @@ namespace ScreenConnect.Integration
             System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
             String respStr = sr.ReadToEnd().Trim();
             updateViewstate(respStr);
+
+            // Earlier Versions of SC6
+            if (respStr.Contains("ctl00$Main$ctl03")) sc6loginbuttonid = "ctl00$Main$ctl03";
+
+            // Later Versions of SC6
+            if (respStr.Contains("ctl00$Main$ctl05")) sc6loginbuttonid = "ctl00$Main$ctl05";
+
             String loginString = "";
             loginString += "__EVENTARGUMENT=&";
             loginString += "__EVENTTARGET=&";
             loginString += "__LASTFOCUS=&";
             loginString += "__VIEWSTATE=" + HttpUtility.UrlEncode(aspViewState) + "&";
             loginString += "__VIEWSTATEGENERATOR=" + HttpUtility.UrlEncode(aspEventValidation) + "&";
-            loginString += HttpUtility.UrlEncode("ctl00$Main$ctl03") + "=" + HttpUtility.UrlEncode("Login") + "&";
+            loginString += HttpUtility.UrlEncode(sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
             loginString += HttpUtility.UrlEncode("ctl00$Main$passwordBox") + "=" + HttpUtility.UrlEncode(nc.Password) + "&";
             loginString += HttpUtility.UrlEncode("ctl00$Main$userNameBox") + "=" + HttpUtility.UrlEncode(nc.UserName);
-            HttpPost(baseUrl + "/Login", loginString, true);
+            updateViewstate(HttpPost(baseUrl + "/Login", loginString, true));
+        }
+
+        private void loginSc6Otp(String oneTimePassword)
+        {
+            String loginString = "";
+            loginString += "__EVENTARGUMENT=&";
+            loginString += "__EVENTTARGET=&";
+            loginString += "__LASTFOCUS=&";
+            loginString += "__VIEWSTATE=" + HttpUtility.UrlEncode(aspViewState) + "&";
+            loginString += HttpUtility.UrlEncode(sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
+            loginString += HttpUtility.UrlEncode("ctl00$Main$oneTimePasswordBox") + "=" + HttpUtility.UrlEncode(oneTimePassword) + "&";
+            updateViewstate(HttpPost(baseUrl + "/Login?Reason=7", loginString, true));
         }
 
         private void updateViewstate(string respStr)
