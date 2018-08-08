@@ -4,7 +4,7 @@
 This Library helps to integrate ScreenConnect into your .NET Projects
 All interaction is done via the on-board mechanisms - no need to change anything on the server-side!
 
-Sample Program ScTray included - shows how to use the library as ScrennConnect GUI for the Systray.
+Sample Program ScTray included - shows how to use the library as ScreenConnect GUI for the Systray.
 
 Features:
 * List Session Categories
