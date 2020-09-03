@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using ScreenConnect.Integration.Exceptions;
 using System;
@@ -41,12 +41,16 @@ namespace ScreenConnect.Integration
         private String hostName;
 
         private String LoginResult = null;
+
+        public string userName;
+
         private NetworkCredential nc;
 
         private String relayPort;
 
         private string sc6loginbuttonid = null;
         private String serverVersion;
+        private int serverVersionMain = 0;
 
         private String serviceAshx = "/Service.ashx";
 
@@ -66,6 +70,15 @@ namespace ScreenConnect.Integration
         {
             this.baseUrl = url.EndsWith("/") ? url.Remove(url.Length - 1) : url;
             serverVersion = getServerVersion();
+            try
+            {
+                serverVersionMain = Int32.Parse(serverVersion.Split(new char[] { '/' }, 2, StringSplitOptions.RemoveEmptyEntries)[1].Split('.')[0]);
+            }
+            catch { }
+            if (serverVersionMain >= 5)
+            {
+                serviceAshx = "/Services/PageService.ashx";
+            }
         }
 
         public SCHostInterface(String url, String username, String password, String oneTimePassword = null) : this(url)
@@ -90,7 +103,7 @@ namespace ScreenConnect.Integration
         public SCHostSession createSupportSession(String name, bool isPublic, String code)
         {
             JValue jVsessionID;
-            if (serverVersion.StartsWith("ScreenConnect/4") || serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 4)
             {
                 jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new Object[] { sessionTypeSupport, name, isPublic, code, new String[0] })));
             }
@@ -111,8 +124,9 @@ namespace ScreenConnect.Integration
 
         public void Login(String username, String password, String oneTimePassword = null)
         {
+            this.userName = username;
             this.nc = new NetworkCredential(username, password);
-            if (serverVersion.StartsWith("ScreenConnect/6")) loginSc6();
+            if (serverVersionMain >= 6) loginSc6();
             if (oneTimePassword != null)
             {
                 LoginOneTimePassword(oneTimePassword);
@@ -149,7 +163,7 @@ namespace ScreenConnect.Integration
         internal String getLaunchURL(SCHostSession session)
         {
             String appName = "Elsinore.ScreenConnect.WindowsClient.application";
-            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6") || serverVersion.StartsWith("ScreenConnect/4.3"))
+            if (serverVersionMain >= 5 || serverVersion.StartsWith("ScreenConnect/4.3"))
             {
                 appName = "Elsinore.ScreenConnect.Client.application";
             }
@@ -158,7 +172,7 @@ namespace ScreenConnect.Integration
             url += "p=" + relayPort + "&";
             url += "k=" + encryptionKey + "&";
             url += "s=" + session._sessionID + "&";
-            if (serverVersion.StartsWith("ScreenConnect/4") || serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 4)
             {
                 url += "i=" + HttpUtility.UrlEncode(session._name) + "&";
             }
@@ -173,6 +187,11 @@ namespace ScreenConnect.Integration
             }
             url += "n=" + HttpUtility.UrlEncode(session._token) + "&";
             url += "e=" + session._type + "&";
+            if (serverVersionMain > 6)
+            {
+                url += "a=None&";
+                url += "r=" + HttpUtility.UrlEncode(userName) + "&";
+            }
             url += "y=Host";
             return url;
         }
@@ -246,7 +265,7 @@ namespace ScreenConnect.Integration
             List<SCHostSession> sl = new List<SCHostSession>();
             JObject hsi = getHostSessionInfo(category, mode);
             String sssKey = "sss";
-            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 5)
             {
                 sssKey = "Sessions";
             }
@@ -254,7 +273,7 @@ namespace ScreenConnect.Integration
             foreach (JObject session in sss)
             {
                 SCHostSession scsession = new SCHostSession(this, category);
-                if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+                if (serverVersionMain >= 5)
                 {
                     scsession._name = session["Name"].ToString();
                     scsession._sessionID = session["SessionID"].ToString();
@@ -320,7 +339,7 @@ namespace ScreenConnect.Integration
                     scsession._custom = custom.ToArray();
                 }
                 String stKey = "st";
-                if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+                if (serverVersionMain >= 5)
                 {
                     stKey = "SessionType";
                 }
@@ -367,7 +386,7 @@ namespace ScreenConnect.Integration
         private byte[] createAccessSession(String type, String name, params String[] customProperties)
         {
             String url;
-            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 5)
             {
                 switch (type)
                 {
@@ -470,7 +489,7 @@ namespace ScreenConnect.Integration
 
         private JObject getHostSessionInfo(String category, int mode)
         {
-            if (serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 6)
             {
                 return JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParamV3(mode, category))); // Mode 2: Access Sessions
             }
@@ -500,12 +519,6 @@ namespace ScreenConnect.Integration
             System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl);
             System.Net.WebResponse resp = req.GetResponse();
             String version = resp.Headers["Server"].Split(' ')[0];
-
-            if (version.StartsWith("ScreenConnect/5") || version.StartsWith("ScreenConnect/6"))
-            {
-                serviceAshx = "/Services/PageService.ashx";
-            }
-
             return version;
         }
 
@@ -571,7 +584,7 @@ namespace ScreenConnect.Integration
         private void initCategories()
         {
             int[] modes = new int[] { -1 };
-            if (serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 6)
             {
                 modes = new int[] { 0, 1, 2 };
             }
@@ -600,7 +613,7 @@ namespace ScreenConnect.Integration
             String nKey = "n";
             String stKey = "st";
             String scKey = "sc";
-            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 5)
             {
                 nKey = "Name";
                 stKey = "SessionType";
@@ -647,7 +660,7 @@ namespace ScreenConnect.Integration
         private void initServerConfig()
         {
             String[] instURLSplit;
-            if (serverVersion.StartsWith("ScreenConnect/5") || serverVersion.StartsWith("ScreenConnect/6"))
+            if (serverVersionMain >= 5)
             {
                 // SC 5 Script Parser Hack
                 String script = HttpPost(baseUrl + "/Script.ashx", "").Replace('\r', ' ').Replace('\n', ' ');
