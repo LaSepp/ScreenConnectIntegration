@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using ScreenConnect.Integration.Exceptions;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -19,6 +20,8 @@ namespace ScreenConnect.Integration
         public List<SCHostCategory> access;
         public List<SCHostCategory> meet;
         public List<SCHostCategory> support;
+
+        public string userName;
 
         #endregion Public Fields
 
@@ -41,9 +44,6 @@ namespace ScreenConnect.Integration
         private String hostName;
 
         private String LoginResult = null;
-
-        public string userName;
-
         private NetworkCredential nc;
 
         private String relayPort;
@@ -53,6 +53,7 @@ namespace ScreenConnect.Integration
         private int serverVersionMain = 0;
 
         private String serviceAshx = "/Service.ashx";
+        private string urlScheme;
 
         #endregion Private Fields
 
@@ -75,6 +76,7 @@ namespace ScreenConnect.Integration
                 serverVersionMain = Int32.Parse(serverVersion.Split(new char[] { '/' }, 2, StringSplitOptions.RemoveEmptyEntries)[1].Split('.')[0]);
             }
             catch { }
+            if (!serverVersion.StartsWith("ScreenConnect/")) serverVersionMain = 999; // Assume newest version if not using internal ScreenConnect Web Server
             if (serverVersionMain >= 5)
             {
                 serviceAshx = "/Services/PageService.ashx";
@@ -160,6 +162,42 @@ namespace ScreenConnect.Integration
             HttpPost(baseUrl + serviceAshx + "/AddEventToSessions", JsonConvert.SerializeObject(new object[] { session.category, new object[] { session.sessionID }, (int)type, data }));
         }
 
+        internal String getLaunchScheme(SCHostSession session)
+        {
+            /*  URL SCHEME:
+                '{0}://{1}:{2}/{3}/{4}/{5}/{6}/{7}/{8}/{9}/{10}',
+				scheme,
+				clientLaunchParameters.h,
+				clientLaunchParameters.p,
+				clientLaunchParameters.s,
+				encodeURIComponent(clientLaunchParameters.k || ''),
+				encodeURIComponent(clientLaunchParameters.n || ''),
+				encodeURIComponent(clientLaunchParameters.r || ''),
+				clientLaunchParameters.e,
+				encodeURIComponent(clientLaunchParameters.i || ''),
+				encodeURIComponent(clientLaunchParameters.a || ''),
+				encodeURIComponent(clientLaunchParameters.l || '')
+            */
+
+            if (session._token == null)
+            {
+                JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
+                session._token = accessTokenInfo.ToString();
+            }
+
+            String url = urlScheme + "://";
+            url += hostName + ":";
+            url += relayPort + "/";
+            url += session._sessionID + "/";
+            url += encryptionKey + "/";
+            url += HttpUtility.UrlEncode(session._token) + "/";
+            url += "/"; // r = User Name?
+            url += session._type + "/";
+            url += HttpUtility.UrlEncode(session._name) + "/";
+            url += "None/";
+            return url;
+        }
+
         internal String getLaunchURL(SCHostSession session)
         {
             String appName = "Elsinore.ScreenConnect.WindowsClient.application";
@@ -182,15 +220,24 @@ namespace ScreenConnect.Integration
             }
             if (session._token == null)
             {
-                JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
-                session._token = accessTokenInfo.ToString();
+                if (serverVersionMain > 6)
+                {
+                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
+                    session._token = accessTokenInfo.ToString();
+                }
+                else
+                {
+                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { new Object[] { session.category }, session.sessionID })));
+                    session._token = accessTokenInfo.ToString();
+                }
             }
             url += "n=" + HttpUtility.UrlEncode(session._token) + "&";
             url += "e=" + session._type + "&";
             if (serverVersionMain > 6)
             {
                 url += "a=None&";
-                url += "r=" + HttpUtility.UrlEncode(userName) + "&";
+                url += "r=&";
+                url += "l=&";
             }
             url += "y=Host";
             return url;
@@ -351,11 +398,20 @@ namespace ScreenConnect.Integration
             return sl;
         }
 
-        internal void startHost(SCHostSession session)
+        internal void startHost(SCHostSession session, Boolean viaScheme = false)
         {
-            String url = getLaunchURL(session);
-            int result = LaunchApplication(url, IntPtr.Zero, 0);
-            if (result != 0) throw new Exception("Error launching Host Client: " + result);
+            HttpPost(baseUrl + serviceAshx + "/LogInitiatedJoin", JsonConvert.SerializeObject(new Object[] { session.sessionID, 1, "(UrlLaunch) ScreenConnectIntegration" }));
+            if (viaScheme)
+            {
+                String url = getLaunchScheme(session);
+                Process.Start(url);
+            }
+            else
+            {
+                String url = getLaunchURL(session);
+                int result = LaunchApplication(url, IntPtr.Zero, 0);
+                if (result != 0) throw new Exception("Error launching Host Client: " + result);
+            }
         }
 
         #endregion Internal Methods
@@ -577,6 +633,11 @@ namespace ScreenConnect.Integration
             }
             System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
             String respStr = sr.ReadToEnd().Trim();
+            if (serverVersionMain > 6 && isLoginRequest)
+            {
+                if (respStr.Contains("Your user account requires an additional authentication step.")) LoginResult = "OneTimePasswordInvalid";
+                if (respStr.Contains("Invalid credentials. Please try again.")) LoginResult = "Invalid credentials";
+            }
             respStr = Regex.Replace(respStr, @"\\u([\dA-Fa-f]{4})", v => ((char)Convert.ToInt32(v.Groups[1].Value, 16)).ToString()).Replace("%25", "%");
             return respStr;
         }
@@ -666,6 +727,13 @@ namespace ScreenConnect.Integration
                 String script = HttpPost(baseUrl + "/Script.ashx", "").Replace('\r', ' ').Replace('\n', ' ');
                 String script_stripped = script.Remove(0, 5);
                 script_stripped = script_stripped.Remove(script_stripped.Length - 1);
+                try
+                {
+                    String scheme = script_stripped.Remove(0, script_stripped.IndexOf("instanceUrlScheme") - 1);
+                    scheme = scheme.Remove(scheme.IndexOf(",") - 1);
+                    urlScheme = scheme.Split(':')[1].Replace("\"", "");
+                }
+                catch { urlScheme = null; }
                 String clp = script_stripped.Remove(0, script_stripped.IndexOf("clp") + 5);
                 clp = clp.Remove(clp.IndexOf("}") + 1);
                 JObject SC = JsonConvert.DeserializeObject<JObject>(clp);
@@ -710,6 +778,9 @@ namespace ScreenConnect.Integration
             // Later Versions of SC6
             if (respStr.Contains("ctl00$Main$ctl05")) sc6loginbuttonid = "ctl00$Main$ctl05";
 
+            // ScreenConnect 20
+            if (respStr.Contains("ctl00$Main$loginButton")) sc6loginbuttonid = "ctl00$Main$loginButton";
+
             String loginString = "";
             loginString += "__EVENTARGUMENT=&";
             loginString += "__EVENTTARGET=&";
@@ -719,7 +790,15 @@ namespace ScreenConnect.Integration
             loginString += HttpUtility.UrlEncode(sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
             loginString += HttpUtility.UrlEncode("ctl00$Main$passwordBox") + "=" + HttpUtility.UrlEncode(nc.Password) + "&";
             loginString += HttpUtility.UrlEncode("ctl00$Main$userNameBox") + "=" + HttpUtility.UrlEncode(nc.UserName);
-            updateViewstate(HttpPost(baseUrl + "/Login", loginString, true));
+            try
+            {
+                updateViewstate(HttpPost(baseUrl + "/Login", loginString, true));
+            }
+            catch (TimeoutException)
+            {
+                // Retry Login - sometimes takes too long?
+                updateViewstate(HttpPost(baseUrl + "/Login", loginString, true));
+            }
         }
 
         private void loginSc6Otp(String oneTimePassword)
