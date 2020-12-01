@@ -76,6 +76,7 @@ namespace ScreenConnect.Integration
 
         public String runCommand(String command)
         {
+            _interface.updateAntiforgeryToken();
             _interface.addEventToSession(this, SCHostSessionEventType.QueuedCommand, command);
             for (int i = 0; i < 15; i++)
             {

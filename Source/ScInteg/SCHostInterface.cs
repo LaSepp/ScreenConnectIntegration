@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using ScreenConnect.Integration.Exceptions;
 using System;
@@ -31,8 +31,8 @@ namespace ScreenConnect.Integration
         private const int sessionTypeMeet = 1;
         private const int sessionTypeSupport = 0;
         private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        private string antiForgeryToken;
         private string aspEventValidation;
-
         private string aspViewState;
 
         private String baseUrl;
@@ -153,13 +153,18 @@ namespace ScreenConnect.Integration
             initCategories();
         }
 
+        public void updateAntiforgeryToken()
+        {
+            updateAntiforgeryToken(HttpPost(baseUrl + "/Host", ""));
+        }
+
         #endregion Public Methods
 
         #region Internal Methods
 
         internal void addEventToSession(SCHostSession session, SCHostSessionEventType type, String data)
         {
-            HttpPost(baseUrl + serviceAshx + "/AddEventToSessions", JsonConvert.SerializeObject(new object[] { session.category, new object[] { session.sessionID }, (int)type, data }));
+            HttpPost(baseUrl + serviceAshx + "/AddEventToSessions", JsonConvert.SerializeObject(new object[] { new object[] { session.category }, new object[] { session.sessionID }, (int)type, data }));
         }
 
         internal String getLaunchScheme(SCHostSession session)
@@ -400,7 +405,8 @@ namespace ScreenConnect.Integration
 
         internal void startHost(SCHostSession session, Boolean viaScheme = false)
         {
-            HttpPost(baseUrl + serviceAshx + "/LogInitiatedJoin", JsonConvert.SerializeObject(new Object[] { session.sessionID, 1, "(UrlLaunch) ScreenConnectIntegration" }));
+            updateAntiforgeryToken();
+            try { HttpPost(baseUrl + serviceAshx + "/LogInitiatedJoin", JsonConvert.SerializeObject(new Object[] { session.sessionID, 1, "(UrlLaunch) ScreenConnectIntegration" })); } catch { }
             if (viaScheme)
             {
                 String url = getLaunchScheme(session);
@@ -618,6 +624,11 @@ namespace ScreenConnect.Integration
                 req.ContentType = "application/json; charset=UTF-8";
             }
             req.Method = "POST";
+            if (antiForgeryToken != null)
+            {
+                req.Headers.Add("x-anti-forgery-token", antiForgeryToken);
+                req.Headers.Add("x-unauthorized-status-code", "403");
+            }
             byte[] bytes = System.Text.Encoding.ASCII.GetBytes(Parameters);
             req.ContentLength = bytes.Length;
             System.IO.Stream os = req.GetRequestStream();
@@ -811,6 +822,19 @@ namespace ScreenConnect.Integration
             loginString += HttpUtility.UrlEncode(sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
             loginString += HttpUtility.UrlEncode("ctl00$Main$oneTimePasswordBox") + "=" + HttpUtility.UrlEncode(oneTimePassword) + "&";
             updateViewstate(HttpPost(baseUrl + "/Login?Reason=7", loginString, true));
+        }
+
+        private void updateAntiforgeryToken(string respStr)
+        {
+            // get antiForgeryToken
+            try
+            {
+                string antiForgeryTokenInfo = "\"antiForgeryToken\":\"";
+                int i = respStr.IndexOf(antiForgeryTokenInfo) + antiForgeryTokenInfo.Length;
+                int j = respStr.IndexOf("\"", i);
+                if (i > antiForgeryTokenInfo.Length) antiForgeryToken = respStr.Substring(i, j - i);
+            }
+            catch { }
         }
 
         private void updateViewstate(string respStr)
