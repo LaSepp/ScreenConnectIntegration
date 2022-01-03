@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
@@ -35,45 +36,47 @@ namespace ScreenConnect.Integration
         private string aspEventValidation;
         private string aspViewState;
 
-        private String baseUrl;
+        private string baseUrl;
 
         private CookieCollection cookies;
 
-        private String encryptionKey;
+        private string encryptionKey;
 
-        private String hostName;
+        private string hostName;
 
-        private String LoginResult = null;
+        private string LoginResult = null;
         private NetworkCredential nc;
 
-        private String relayPort;
+        private string relayPort;
 
         private string sc6loginbuttonid = null;
-        private String serverVersion;
+        private string serverVersion;
         private int serverVersionMain = 0;
 
-        private String serviceAshx = "/Service.ashx";
+        private string serviceAshx = "/Service.ashx";
         private string urlScheme;
 
         #endregion Private Fields
 
         #region Public Properties
 
-        public String LoginErrorCode { get { return LoginResult; } }
-        public Boolean NoLoginError { get { return LoginResult == null || LoginResult == ""; } }
-        public Boolean OneTimePasswordRequired { get { return LoginResult == "OneTimePasswordInvalid"; } }
+        public string LoginErrorCode => LoginResult;
+        public bool NoLoginError => LoginResult == null || LoginResult == string.Empty;
+        public bool OneTimePasswordRequired => LoginResult == "OneTimePasswordInvalid";
+
+        private bool SC21SessionMode = false;
 
         #endregion Public Properties
 
         #region Public Constructors
 
-        public SCHostInterface(String url)
+        public SCHostInterface(string url)
         {
-            this.baseUrl = url.EndsWith("/") ? url.Remove(url.Length - 1) : url;
+            baseUrl = url.EndsWith("/") ? url.Remove(url.Length - 1) : url;
             serverVersion = getServerVersion();
             try
             {
-                serverVersionMain = Int32.Parse(serverVersion.Split(new char[] { '/' }, 2, StringSplitOptions.RemoveEmptyEntries)[1].Split('.')[0]);
+                serverVersionMain = int.Parse(serverVersion.Split(new char[] { '/' }, 2, StringSplitOptions.RemoveEmptyEntries)[1].Split('.')[0]);
             }
             catch { }
             if (!serverVersion.StartsWith("ScreenConnect/")) serverVersionMain = 999; // Assume newest version if not using internal ScreenConnect Web Server
@@ -83,7 +86,7 @@ namespace ScreenConnect.Integration
             }
         }
 
-        public SCHostInterface(String url, String username, String password, String oneTimePassword = null) : this(url)
+        public SCHostInterface(string url, string username, string password, string oneTimePassword = null) : this(url)
         {
             Login(username, password, oneTimePassword);
         }
@@ -92,28 +95,28 @@ namespace ScreenConnect.Integration
 
         #region Public Methods
 
-        public byte[] createAccessSessionMSI(String name, params String[] customProperties)
+        public byte[] createAccessSessionMSI(string name, params string[] customProperties)
         {
             return createAccessSession("msi", name, customProperties);
         }
 
-        public byte[] createAccessSessionPKG(String name, params String[] customProperties)
+        public byte[] createAccessSessionPKG(string name, params string[] customProperties)
         {
             return createAccessSession("pkg", name, customProperties);
         }
 
-        public SCHostSession createSupportSession(String name, bool isPublic, String code)
+        public SCHostSession createSupportSession(string name, bool isPublic, string code)
         {
             JValue jVsessionID;
             if (serverVersionMain >= 4)
             {
-                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new Object[] { sessionTypeSupport, name, isPublic, code, new String[0] })));
+                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new object[] { sessionTypeSupport, name, isPublic, code, new string[0] })));
             }
             else
             {
-                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new Object[] { sessionTypeSupport, name, isPublic, code })));
+                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new object[] { sessionTypeSupport, name, isPublic, code })));
             }
-            String sessionID = jVsessionID.Value<String>();
+            string sessionID = jVsessionID.Value<string>();
             foreach (SCHostCategory cat in support)
             {
                 foreach (SCHostSession session in cat.sessions)
@@ -124,12 +127,12 @@ namespace ScreenConnect.Integration
             throw new Exception("Error creating Session");
         }
 
-        public void Login(String username, String password, String oneTimePassword = null)
+        public void Login(string username, string password, string oneTimePassword = null)
         {
-            this.userName = username;
-            this.nc = new NetworkCredential(username, password);
+            userName = username;
+            nc = new NetworkCredential(username, password);
             if (serverVersionMain >= 6) loginSc6();
-            if (oneTimePassword != null)
+            if (oneTimePassword != null && !SC21SessionMode)
             {
                 LoginOneTimePassword(oneTimePassword);
                 return;
@@ -140,10 +143,17 @@ namespace ScreenConnect.Integration
             initCategories();
         }
 
-        public void LoginOneTimePassword(String oneTimePassword)
+        public void LoginOneTimePassword(string oneTimePassword)
         {
-            if (oneTimePassword != null) loginSc6Otp(oneTimePassword);
-            if (!NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + LoginResult, LoginResult);
+            if (SC21SessionMode)
+            {
+                loginSc21(oneTimePassword);
+            }
+            else
+            {
+                if (oneTimePassword != null) loginSc6Otp(oneTimePassword);
+                if (!NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + LoginResult, LoginResult);
+            }
             initServerConfig();
             initCategories();
         }
@@ -155,19 +165,19 @@ namespace ScreenConnect.Integration
 
         public void updateAntiforgeryToken()
         {
-            updateAntiforgeryToken(HttpPost(baseUrl + "/Host", ""));
+            updateAntiforgeryToken(HttpPost(baseUrl + "/Host", string.Empty));
         }
 
         #endregion Public Methods
 
         #region Internal Methods
 
-        internal void addEventToSession(SCHostSession session, SCHostSessionEventType type, String data)
+        internal void addEventToSession(SCHostSession session, SCHostSessionEventType type, string data)
         {
             HttpPost(baseUrl + serviceAshx + "/AddEventToSessions", JsonConvert.SerializeObject(new object[] { new object[] { session.category }, new object[] { session.sessionID }, (int)type, data }));
         }
 
-        internal String getLaunchScheme(SCHostSession session)
+        internal string getLaunchScheme(SCHostSession session)
         {
             /*  URL SCHEME:
                 '{0}://{1}:{2}/{3}/{4}/{5}/{6}/{7}/{8}/{9}/{10}',
@@ -186,11 +196,11 @@ namespace ScreenConnect.Integration
 
             if (session._token == null)
             {
-                JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
+                JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
                 session._token = accessTokenInfo.ToString();
             }
 
-            String url = urlScheme + "://";
+            string url = urlScheme + "://";
             url += hostName + ":";
             url += relayPort + "/";
             url += session._sessionID + "/";
@@ -203,14 +213,14 @@ namespace ScreenConnect.Integration
             return url;
         }
 
-        internal String getLaunchURL(SCHostSession session)
+        internal string getLaunchURL(SCHostSession session)
         {
-            String appName = "Elsinore.ScreenConnect.WindowsClient.application";
+            string appName = "Elsinore.ScreenConnect.WindowsClient.application";
             if (serverVersionMain >= 5 || serverVersion.StartsWith("ScreenConnect/4.3"))
             {
                 appName = "Elsinore.ScreenConnect.Client.application";
             }
-            String url = baseUrl + "/Bin/" + appName + "?";
+            string url = baseUrl + "/Bin/" + appName + "?";
             url += "h=" + hostName + "&";
             url += "p=" + relayPort + "&";
             url += "k=" + encryptionKey + "&";
@@ -227,12 +237,12 @@ namespace ScreenConnect.Integration
             {
                 if (serverVersionMain > 6)
                 {
-                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
+                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
                     session._token = accessTokenInfo.ToString();
                 }
                 else
                 {
-                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new Object[] { new Object[] { session.category }, session.sessionID })));
+                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { new object[] { session.category }, session.sessionID })));
                     session._token = accessTokenInfo.ToString();
                 }
             }
@@ -250,7 +260,7 @@ namespace ScreenConnect.Integration
 
         internal SCHostSessionDetails getSessionDetails(SCHostSession session)
         {
-            JObject gsd = JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetSessionDetails", JsonConvert.SerializeObject(new Object[] { session.category, session.sessionID })));
+            JObject gsd = JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetSessionDetails", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
             SCHostSessionDetails details = new SCHostSessionDetails(session);
             try
             {
@@ -279,10 +289,10 @@ namespace ScreenConnect.Integration
                     {
                         SCHostSessionEvent e = new Integration.SCHostSessionEvent();
                         e.ConnectionId = Guid.Empty;
-                        e.Data = evt["Data"].Value<String>();
+                        e.Data = evt["Data"].Value<string>();
                         e.EventId = new Guid(evt["EventID"].ToString());
                         e.EventType = (SCHostSessionEventType)evt["EventType"].Value<int>();
-                        e.Host = evt["Host"].Value<String>();
+                        e.Host = evt["Host"].Value<string>();
                         e.Time = UnixEpoch.AddMilliseconds(basetime - evt["Time"].Value<long>());
                         eventlist.Add(e);
                     }
@@ -296,10 +306,10 @@ namespace ScreenConnect.Integration
                         {
                             SCHostSessionEvent e = new Integration.SCHostSessionEvent();
                             e.ConnectionId = new Guid(conn["ConnectionID"].ToString());
-                            e.Data = evt["Data"].Value<String>();
+                            e.Data = evt["Data"].Value<string>();
                             e.EventId = new Guid(evt["EventID"].ToString());
                             e.EventType = (SCHostSessionEventType)evt["EventType"].Value<int>();
-                            e.Host = conn["ParticipantName"].Value<String>();
+                            e.Host = conn["ParticipantName"].Value<string>();
                             e.Time = UnixEpoch.AddMilliseconds(basetime - evt["Time"].Value<long>());
                             eventlist.Add(e);
                         }
@@ -312,11 +322,11 @@ namespace ScreenConnect.Integration
             return details;
         }
 
-        internal List<SCHostSession> getSessions(String category, int mode)
+        internal List<SCHostSession> getSessions(string category, int mode)
         {
             List<SCHostSession> sl = new List<SCHostSession>();
             JObject hsi = getHostSessionInfo(category, mode);
-            String sssKey = "sss";
+            string sssKey = "sss";
             if (serverVersionMain >= 5)
             {
                 sssKey = "Sessions";
@@ -334,17 +344,17 @@ namespace ScreenConnect.Integration
                     try
                     {
                         scsession._guestOS = session["GuestOperatingSystemName"].ToString();
-                        String domain = session["GuestLoggedOnUserDomain"].ToString();
-                        scsession._guestUser = (domain == "" ? "" : domain + @"\") + session["GuestLoggedOnUserName"].ToString();
+                        string domain = session["GuestLoggedOnUserDomain"].ToString();
+                        scsession._guestUser = (domain == string.Empty ? string.Empty : domain + @"\") + session["GuestLoggedOnUserName"].ToString();
                     }
                     catch
                     {
                         // Attributes not supported
                     }
-                    List<String> custom = new List<String>();
+                    List<string> custom = new List<string>();
                     foreach (JValue cobj in (JArray)session["CustomPropertyValues"])
                     {
-                        custom.Add(cobj.Value<String>());
+                        custom.Add(cobj.Value<string>());
                     }
                     scsession._custom = custom.ToArray();
                     JArray active = (JArray)session["ActiveConnections"];
@@ -356,7 +366,7 @@ namespace ScreenConnect.Integration
                 }
                 else
                 {
-                    scsession._host = session["h"].Value<String>();
+                    scsession._host = session["h"].Value<string>();
                     if (session["hcc"] == null && session["gcc"] == null && session["acs"] != null) // ScreenConnect 4.3 Presence Information
                     {
                         JArray acs = (JArray)session["acs"];
@@ -375,22 +385,22 @@ namespace ScreenConnect.Integration
                     JObject clp = session["clp"].Value<JObject>();
                     if (serverVersion.StartsWith("ScreenConnect/4"))
                     {
-                        scsession._name = clp["i"].Value<String>();
+                        scsession._name = clp["i"].Value<string>();
                     }
                     else
                     {
-                        scsession._name = clp["t"].Value<String>();
+                        scsession._name = clp["t"].Value<string>();
                     }
-                    scsession._sessionID = clp["s"].Value<String>();
-                    scsession._token = clp["n"].Value<String>();
-                    List<String> custom = new List<String>();
+                    scsession._sessionID = clp["s"].Value<string>();
+                    scsession._token = clp["n"].Value<string>();
+                    List<string> custom = new List<string>();
                     foreach (JValue cobj in (JArray)session["cps"])
                     {
-                        custom.Add(cobj.Value<String>());
+                        custom.Add(cobj.Value<string>());
                     }
                     scsession._custom = custom.ToArray();
                 }
-                String stKey = "st";
+                string stKey = "st";
                 if (serverVersionMain >= 5)
                 {
                     stKey = "SessionType";
@@ -403,18 +413,18 @@ namespace ScreenConnect.Integration
             return sl;
         }
 
-        internal void startHost(SCHostSession session, Boolean viaScheme = false)
+        internal void startHost(SCHostSession session, bool viaScheme = false)
         {
             updateAntiforgeryToken();
-            try { HttpPost(baseUrl + serviceAshx + "/LogInitiatedJoin", JsonConvert.SerializeObject(new Object[] { session.sessionID, 1, "(UrlLaunch) ScreenConnectIntegration" })); } catch { }
+            try { HttpPost(baseUrl + serviceAshx + "/LogInitiatedJoin", JsonConvert.SerializeObject(new object[] { session.sessionID, 1, "(UrlLaunch) ScreenConnectIntegration" })); } catch { }
             if (viaScheme)
             {
-                String url = getLaunchScheme(session);
+                string url = getLaunchScheme(session);
                 Process.Start(url);
             }
             else
             {
-                String url = getLaunchURL(session);
+                string url = getLaunchURL(session);
                 int result = LaunchApplication(url, IntPtr.Zero, 0);
                 if (result != 0) throw new Exception("Error launching Host Client: " + result);
             }
@@ -425,29 +435,29 @@ namespace ScreenConnect.Integration
         #region Private Methods
 
         [DllImport("dfshim.dll", EntryPoint = "LaunchApplication", CharSet = CharSet.Unicode)]
-        private static extern int LaunchApplication(string UrlToDeploymentManifest, System.IntPtr dataMustBeNull, System.UInt32 flagsMustBeZero);
+        private static extern int LaunchApplication(string UrlToDeploymentManifest, System.IntPtr dataMustBeNull, uint flagsMustBeZero);
 
-        private String buildHostSessionInfoParam(String category)
+        private string buildHostSessionInfoParam(string category)
         {
-            Object info = new Object[] { category, null, null, 0 };
+            object info = new object[] { category, null, null, 0 };
             return JsonConvert.SerializeObject(info);
         }
 
-        private String buildHostSessionInfoParamV2(String category)
+        private string buildHostSessionInfoParamV2(string category)
         {
-            Object info = new Object[] { new String[] { category }, null, null, 0 };
+            object info = new object[] { new string[] { category }, null, null, 0 };
             return JsonConvert.SerializeObject(info);
         }
 
-        private String buildHostSessionInfoParamV3(int mode, String category)
+        private string buildHostSessionInfoParamV3(int mode, string category)
         {
-            Object info = new Object[] { mode, category == null ? new String[0] : new String[] { category }, null, null, 0 };
+            object info = new object[] { mode, category == null ? new string[0] : new string[] { category }, null, null, 0 };
             return JsonConvert.SerializeObject(info);
         }
 
-        private byte[] createAccessSession(String type, String name, params String[] customProperties)
+        private byte[] createAccessSession(string type, string name, params string[] customProperties)
         {
-            String url;
+            string url;
             if (serverVersionMain >= 5)
             {
                 switch (type)
@@ -484,7 +494,7 @@ namespace ScreenConnect.Integration
                 url += "k=" + encryptionKey + "&";
                 url += "e=Access&y=Guest&";
                 url += "t=" + HttpUtility.UrlEncode(name);
-                foreach (String p in customProperties)
+                foreach (string p in customProperties)
                 {
                     url += "&c=" + HttpUtility.UrlEncode(p);
                 }
@@ -509,7 +519,7 @@ namespace ScreenConnect.Integration
                         throw new NotSupportedException("Only types msi and pkg supported in this version of ScreenConnect");
                 }
             }
-            url = url.Replace("\"", "");
+            url = url.Replace("\"", string.Empty);
             return HttpDownload(baseUrl + "/" + url);
         }
 
@@ -522,7 +532,7 @@ namespace ScreenConnect.Integration
                 if (name != "Set-Cookie")
                     continue;
                 string value = response.Headers.Get(i);
-                foreach (var singleCookie in value.Split(','))
+                foreach (string singleCookie in value.Split(','))
                 {
                     Match match = Regex.Match(singleCookie, "(.+?)=(.+?);");
                     if (match.Captures.Count == 0)
@@ -549,7 +559,7 @@ namespace ScreenConnect.Integration
             return getHostSessionInfo(null, mode);
         }
 
-        private JObject getHostSessionInfo(String category, int mode)
+        private JObject getHostSessionInfo(string category, int mode)
         {
             if (serverVersionMain >= 6)
             {
@@ -565,26 +575,26 @@ namespace ScreenConnect.Integration
             }
         }
 
-        private String getInstallerUrlV3(bool asMac, bool asMSI, String name)
+        private string getInstallerUrlV3(bool asMac, bool asMSI, string name)
         {
-            return HttpPost(baseUrl + serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new Object[] { asMac, asMSI, name }));
+            return HttpPost(baseUrl + serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new object[] { asMac, asMSI, name }));
         }
 
-        private String getInstallerUrlV4(String type, String name, String[] parameters)
+        private string getInstallerUrlV4(string type, string name, string[] parameters)
         {
-            String url = HttpPost(baseUrl + serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new Object[] { type, name, parameters }));
+            string url = HttpPost(baseUrl + serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new object[] { type, name, parameters }));
             return url;
         }
 
-        private String getServerVersion()
+        private string getServerVersion()
         {
             System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl);
             System.Net.WebResponse resp = req.GetResponse();
-            String version = resp.Headers["Server"].Split(' ')[0];
+            string version = resp.Headers["Server"].Split(' ')[0];
             return version;
         }
 
-        private byte[] HttpDownload(String url)
+        private byte[] HttpDownload(string url)
         {
             HttpWebRequest req = (HttpWebRequest)HttpWebRequest.Create(url);
             req.UserAgent = "ScreenConnect Integration Library";
@@ -603,19 +613,19 @@ namespace ScreenConnect.Integration
             return ms.ToArray();
         }
 
-        private string HttpPost(String url, string Parameters, Boolean isLoginRequest = false)
+        private string HttpPost(string url, string Parameters, bool isLoginRequest = false)
         {
             HttpWebRequest req = (HttpWebRequest)HttpWebRequest.Create(url);
             if (isLoginRequest) req.AllowAutoRedirect = false;
             req.UserAgent = "ScreenConnect Integration Library";
             req.Timeout = 10000;
             req.Credentials = nc;
-            if (this.cookies != null)
+            if (cookies != null)
             {
                 req.CookieContainer = new CookieContainer();
-                req.CookieContainer.Add(this.cookies);
+                req.CookieContainer.Add(cookies);
             }
-            if (isLoginRequest)
+            if (isLoginRequest && !SC21SessionMode)
             {
                 req.ContentType = "application/x-www-form-urlencoded";
             }
@@ -640,10 +650,10 @@ namespace ScreenConnect.Integration
             {
                 try { LoginResult = resp.GetResponseHeader("X-Login-Result"); } catch { }
                 fixCookies(req, resp);
-                this.cookies = resp.Cookies;
+                cookies = resp.Cookies;
             }
             System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
-            String respStr = sr.ReadToEnd().Trim();
+            string respStr = sr.ReadToEnd().Trim();
             if (serverVersionMain > 6 && isLoginRequest)
             {
                 if (respStr.Contains("Your user account requires an additional authentication step.")) LoginResult = "OneTimePasswordInvalid";
@@ -663,9 +673,9 @@ namespace ScreenConnect.Integration
             foreach (int mode in modes)
             {
                 JObject hsi = getHostSessionInfo(mode);
-                String[] sgsKeys = new String[] { "sgs", "SessionGroupSummaries", "PathSessionGroupSummaries" };
+                string[] sgsKeys = new string[] { "sgs", "SessionGroupSummaries", "PathSessionGroupSummaries" };
                 JArray sgs = null;
-                foreach (String sgsKey in sgsKeys)
+                foreach (string sgsKey in sgsKeys)
                 {
                     try
                     {
@@ -682,9 +692,9 @@ namespace ScreenConnect.Integration
 
         private void initCategories(JArray sgs, int mode)
         {
-            String nKey = "n";
-            String stKey = "st";
-            String scKey = "sc";
+            string nKey = "n";
+            string stKey = "st";
+            string scKey = "sc";
             if (serverVersionMain >= 5)
             {
                 nKey = "Name";
@@ -715,7 +725,7 @@ namespace ScreenConnect.Integration
             if (sgs[0] is JArray) sgs = (JArray)sgs[0];
             foreach (JObject category in sgs)
             {
-                String name = category[nKey].Value<String>();
+                string name = category[nKey].Value<string>();
                 int type = category[stKey].Value<int>();
                 int count = category[scKey].Value<int>();
                 List<SCHostCategory> catList = null;
@@ -731,21 +741,21 @@ namespace ScreenConnect.Integration
 
         private void initServerConfig()
         {
-            String[] instURLSplit;
+            string[] instURLSplit;
             if (serverVersionMain >= 5)
             {
                 // SC 5 Script Parser Hack
-                String script = HttpPost(baseUrl + "/Script.ashx", "").Replace('\r', ' ').Replace('\n', ' ');
-                String script_stripped = script.Remove(0, 5);
+                string script = HttpPost(baseUrl + "/Script.ashx", string.Empty).Replace('\r', ' ').Replace('\n', ' ');
+                string script_stripped = script.Remove(0, 5);
                 script_stripped = script_stripped.Remove(script_stripped.Length - 1);
                 try
                 {
-                    String scheme = script_stripped.Remove(0, script_stripped.IndexOf("instanceUrlScheme") - 1);
+                    string scheme = script_stripped.Remove(0, script_stripped.IndexOf("instanceUrlScheme") - 1);
                     scheme = scheme.Remove(scheme.IndexOf(",") - 1);
-                    urlScheme = scheme.Split(':')[1].Replace("\"", "");
+                    urlScheme = scheme.Split(':')[1].Replace("\"", string.Empty);
                 }
                 catch { urlScheme = null; }
-                String clp = script_stripped.Remove(0, script_stripped.IndexOf("clp") + 5);
+                string clp = script_stripped.Remove(0, script_stripped.IndexOf("clp") + 5);
                 clp = clp.Remove(clp.IndexOf("}") + 1);
                 JObject SC = JsonConvert.DeserializeObject<JObject>(clp);
                 hostName = SC.GetValue("h").ToString();
@@ -756,15 +766,15 @@ namespace ScreenConnect.Integration
             {
                 if (serverVersion.StartsWith("ScreenConnect/4"))
                 {
-                    instURLSplit = getInstallerUrlV4("msi", "", new String[0]).Split(new char[] { '?', '&' });
+                    instURLSplit = getInstallerUrlV4("msi", string.Empty, new string[0]).Split(new char[] { '?', '&' });
                 }
                 else
                 {
                     instURLSplit = getInstallerUrlV3(false, false, "name").Split(new char[] { '?', '&' });
                 }
-                foreach (String kvString in instURLSplit)
+                foreach (string kvString in instURLSplit)
                 {
-                    String[] kv = kvString.Split('=');
+                    string[] kv = kvString.Split('=');
                     if (kv.Length > 1)
                     {
                         if (kv[0] == "h") hostName = kv[1];
@@ -780,7 +790,16 @@ namespace ScreenConnect.Integration
             System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl + "/Login");
             System.Net.WebResponse resp = req.GetResponse();
             System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
-            String respStr = sr.ReadToEnd().Trim();
+            string respStr = sr.ReadToEnd().Trim();
+
+            // ScreenConnect 21+
+            if (respStr.Contains("securityNonce: '',"))
+            {
+                SC21SessionMode = true;
+                loginSc21();
+                return;
+            }
+
             updateViewstate(respStr);
 
             // Earlier Versions of SC6
@@ -792,7 +811,7 @@ namespace ScreenConnect.Integration
             // ScreenConnect 20
             if (respStr.Contains("ctl00$Main$loginButton")) sc6loginbuttonid = "ctl00$Main$loginButton";
 
-            String loginString = "";
+            string loginString = string.Empty;
             loginString += "__EVENTARGUMENT=&";
             loginString += "__EVENTTARGET=&";
             loginString += "__LASTFOCUS=&";
@@ -812,9 +831,54 @@ namespace ScreenConnect.Integration
             }
         }
 
-        private void loginSc6Otp(String oneTimePassword)
+        private void loginSc21(string oneTimePassword = null)
         {
-            String loginString = "";
+            string nonce = GeneratePassword(16, CharacterSetAlphanumeric);
+            string loginString = null;
+            if (oneTimePassword == null)
+            {
+                loginString = "[\"" + nc.UserName.Replace("\"", "\\\"") + "\",\"" + nc.Password.Replace("\"", "\\\"") + "\",null,null,\"" + nonce + "\"]";
+            }
+            else
+            {
+                loginString = "[\"" + nc.UserName.Replace("\"", "\\\"") + "\",\"" + nc.Password.Replace("\"", "\\\"") + "\",\"" + oneTimePassword.Replace("\"", "\\\"") + "\",null,\"" + nonce + "\"]";
+            }
+            string loginResult = HttpPost(baseUrl + "/Services/AuthenticationService.ashx/TryLogin", loginString, true);
+            switch (loginResult)
+            {
+                case "0":
+                case "1":
+                    // Success
+                    break;
+                case "11":
+                    // OTP Auth required
+                    LoginResult = "OneTimePasswordInvalid";
+                    break;
+                default:
+                    LoginResult = "Invalid credentials";
+                    break;
+            }
+        }
+
+        private static readonly string CharacterSetAlphanumeric = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+        private static string GeneratePassword(int length, string characterSet)
+        {
+            char[] characterArray = characterSet.ToCharArray();
+            byte[] bytes = new byte[length * 8];
+            new RNGCryptoServiceProvider().GetBytes(bytes);
+            char[] result = new char[length];
+            for (int i = 0; i < length; i++)
+            {
+                ulong value = BitConverter.ToUInt64(bytes, i * 8);
+                result[i] = characterArray[value % (uint)characterArray.Length];
+            }
+            return new string(result);
+        }
+
+        private void loginSc6Otp(string oneTimePassword)
+        {
+            string loginString = string.Empty;
             loginString += "__EVENTARGUMENT=&";
             loginString += "__EVENTTARGET=&";
             loginString += "__LASTFOCUS=&";
