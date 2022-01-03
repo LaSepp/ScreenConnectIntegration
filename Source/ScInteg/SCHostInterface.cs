@@ -107,6 +107,7 @@ namespace ScreenConnect.Integration
 
         public SCHostSession createSupportSession(string name, bool isPublic, string code)
         {
+            updateAntiforgeryToken();
             JValue jVsessionID;
             if (serverVersionMain >= 4)
             {
