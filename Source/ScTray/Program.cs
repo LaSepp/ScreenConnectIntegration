@@ -26,16 +26,16 @@ namespace ScreenConnect.ScTray
 
         public Program()
         {
-            trayMenu = new ContextMenu();
+            this.trayMenu = new ContextMenu();
 
-            trayMenu.Popup += new EventHandler(trayMenu_Popup);
+            this.trayMenu.Popup += new EventHandler(trayMenu_Popup);
 
-            trayIcon = new NotifyIcon();
-            trayIcon.Text = "ScreenConnect Tray";
-            trayIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            this.trayIcon = new NotifyIcon();
+            this.trayIcon.Text = "ScreenConnect Tray";
+            this.trayIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
-            trayIcon.ContextMenu = trayMenu;
-            trayIcon.Visible = true;
+            this.trayIcon.ContextMenu = this.trayMenu;
+            this.trayIcon.Visible = true;
         }
 
         #endregion Public Constructors
@@ -92,7 +92,7 @@ namespace ScreenConnect.ScTray
         {
             if (isDisposing)
             {
-                trayIcon.Dispose();
+                this.trayIcon.Dispose();
             }
 
             base.Dispose(isDisposing);
@@ -100,8 +100,8 @@ namespace ScreenConnect.ScTray
 
         protected override void OnLoad(EventArgs e)
         {
-            Visible = false;
-            ShowInTaskbar = false;
+            this.Visible = false;
+            this.ShowInTaskbar = false;
 
             base.OnLoad(e);
         }
@@ -113,14 +113,15 @@ namespace ScreenConnect.ScTray
         private static void Main(string[] args)
         {
             WebRequest.DefaultWebProxy = null;
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             if (args.Length == 0)
             {
                 MessageBox.Show("Parameter required: ScreenConnect URL", "ScreenConnect Tray", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            String bUrl = args[0];
+            string bUrl = args[0];
             UserCredentialsDialog ucd = new UserCredentialsDialog(bUrl, "Login to ScreenConnect", "Enter ScreenConnect password");
-            String oneTimePassword = null;
+            string oneTimePassword = null;
             sc = new SCHostInterface(bUrl);
             while (true)
             {
@@ -185,28 +186,28 @@ namespace ScreenConnect.ScTray
             {
                 SCHostCategory cInt = c;
                 MenuItem cat = new MenuItem(c.name + " (" + c.count + ")");
-                cat.Popup += delegate (Object sender1, EventArgs e1)
+                cat.Popup += delegate (object sender1, EventArgs e1)
                 {
                     cat.MenuItems.Clear();
                     foreach (SCHostSession s in cInt.sessions)
                     {
                         SCHostSession sInt = s;
-                        String name = sInt.name;
+                        string name = sInt.name;
                         if (sInt.hostConnected) name = sInt.name + " (Connected)";
                         if (sInt.guestUser != "") name += " [" + sInt.guestUser + "]";
                         MenuItem item = new MenuItem(name);
                         item.MenuItems.Add("");
-                        item.Popup += delegate (Object sender2, EventArgs e2)
+                        item.Popup += delegate (object sender2, EventArgs e2)
                           {
                               item.MenuItems.Clear();
-                              MenuItem connect = new MenuItem("connect", delegate (Object sender3, EventArgs e3)
+                              MenuItem connect = new MenuItem("connect", delegate (object sender3, EventArgs e3)
                               {
                                   sInt.connect();
                               });
                               item.MenuItems.Add(connect);
-                              MenuItem runcommand = new MenuItem("run command", delegate (Object sender3, EventArgs e3)
+                              MenuItem runcommand = new MenuItem("run command", delegate (object sender3, EventArgs e3)
                               {
-                                  String input = null;
+                                  string input = null;
                                   DialogResult dResult = InputBox("Run Command", "Enter Command:", ref input);
                                   if (dResult == DialogResult.OK)
                                   {
@@ -223,7 +224,7 @@ namespace ScreenConnect.ScTray
                               item.MenuItems.Add(runcommand);
                               MenuItem mDetails = new MenuItem("details");
                               mDetails.MenuItems.Add("");
-                              mDetails.Popup += delegate (Object sender3, EventArgs e3)
+                              mDetails.Popup += delegate (object sender3, EventArgs e3)
                               {
                                   mDetails.MenuItems.Clear();
                                   try
@@ -250,7 +251,7 @@ namespace ScreenConnect.ScTray
 
         private void OnCreateSession(object sender, EventArgs e)
         {
-            String input = null;
+            string input = null;
             DialogResult dResult = InputBox("Create Session", "Enter Session Name:", ref input);
             if (dResult == DialogResult.OK)
             {
@@ -265,8 +266,8 @@ namespace ScreenConnect.ScTray
 
         private void trayMenu_Popup(object sender, EventArgs e)
         {
-            trayMenu.MenuItems.Clear();
-            trayMenu.MenuItems.Add("New Session", OnCreateSession);
+            this.trayMenu.MenuItems.Clear();
+            this.trayMenu.MenuItems.Add("New Session", OnCreateSession);
             sc.refreshCategories();
             MenuItem support = new MenuItem("Support");
             buildMenu(support, sc.support);
@@ -275,10 +276,10 @@ namespace ScreenConnect.ScTray
             MenuItem access = new MenuItem("Access");
             buildMenu(access, sc.access);
 
-            trayMenu.MenuItems.Add(support);
-            trayMenu.MenuItems.Add(meet);
-            trayMenu.MenuItems.Add(access);
-            trayMenu.MenuItems.Add("Exit", OnExit);
+            this.trayMenu.MenuItems.Add(support);
+            this.trayMenu.MenuItems.Add(meet);
+            this.trayMenu.MenuItems.Add(access);
+            this.trayMenu.MenuItems.Add("Exit", OnExit);
         }
 
         #endregion Private Methods

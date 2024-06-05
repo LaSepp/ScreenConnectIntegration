@@ -60,9 +60,9 @@ namespace ScreenConnect.Integration
 
         #region Public Properties
 
-        public string LoginErrorCode => LoginResult;
-        public bool NoLoginError => LoginResult == null || LoginResult == string.Empty;
-        public bool OneTimePasswordRequired => LoginResult == "OneTimePasswordInvalid";
+        public string LoginErrorCode => this.LoginResult;
+        public bool NoLoginError => this.LoginResult == null || this.LoginResult == string.Empty;
+        public bool OneTimePasswordRequired => this.LoginResult == "OneTimePasswordInvalid";
 
         private bool SC21SessionMode = false;
 
@@ -72,17 +72,17 @@ namespace ScreenConnect.Integration
 
         public SCHostInterface(string url)
         {
-            baseUrl = url.EndsWith("/") ? url.Remove(url.Length - 1) : url;
-            serverVersion = getServerVersion();
+            this.baseUrl = url.EndsWith("/") ? url.Remove(url.Length - 1) : url;
+            this.serverVersion = getServerVersion();
             try
             {
-                serverVersionMain = int.Parse(serverVersion.Split(new char[] { '/' }, 2, StringSplitOptions.RemoveEmptyEntries)[1].Split('.')[0]);
+                this.serverVersionMain = int.Parse(this.serverVersion.Split(new char[] { '/' }, 2, StringSplitOptions.RemoveEmptyEntries)[1].Split('.')[0]);
             }
             catch { }
-            if (!serverVersion.StartsWith("ScreenConnect/")) serverVersionMain = 999; // Assume newest version if not using internal ScreenConnect Web Server
-            if (serverVersionMain >= 5)
+            if (!this.serverVersion.StartsWith("ScreenConnect/")) this.serverVersionMain = 999; // Assume newest version if not using internal ScreenConnect Web Server
+            if (this.serverVersionMain >= 5)
             {
-                serviceAshx = "/Services/PageService.ashx";
+                this.serviceAshx = "/Services/PageService.ashx";
             }
         }
 
@@ -109,16 +109,16 @@ namespace ScreenConnect.Integration
         {
             updateAntiforgeryToken();
             JValue jVsessionID;
-            if (serverVersionMain >= 4)
+            if (this.serverVersionMain >= 4)
             {
-                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new object[] { sessionTypeSupport, name, isPublic, code, new string[0] })));
+                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(this.baseUrl + this.serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new object[] { sessionTypeSupport, name, isPublic, code, new string[0] })));
             }
             else
             {
-                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new object[] { sessionTypeSupport, name, isPublic, code })));
+                jVsessionID = JsonConvert.DeserializeObject<JValue>(HttpPost(this.baseUrl + this.serviceAshx + "/CreateSession", JsonConvert.SerializeObject(new object[] { sessionTypeSupport, name, isPublic, code })));
             }
             string sessionID = jVsessionID.Value<string>();
-            foreach (SCHostCategory cat in support)
+            foreach (SCHostCategory cat in this.support)
             {
                 foreach (SCHostSession session in cat.sessions)
                 {
@@ -130,30 +130,30 @@ namespace ScreenConnect.Integration
 
         public void Login(string username, string password, string oneTimePassword = null)
         {
-            userName = username;
-            nc = new NetworkCredential(username, password);
-            if (serverVersionMain >= 6) loginSc6();
-            if (oneTimePassword != null && !SC21SessionMode)
+            this.userName = username;
+            this.nc = new NetworkCredential(username, password);
+            if (this.serverVersionMain >= 6) loginSc6();
+            if (oneTimePassword != null) // && !SC21SessionMode)
             {
                 LoginOneTimePassword(oneTimePassword);
                 return;
             }
-            if (OneTimePasswordRequired) throw new ScreenConnectAuthenticationException("One Time Password needed", LoginResult);
-            if (!NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + LoginResult, LoginResult);
+            if (this.OneTimePasswordRequired) throw new ScreenConnectAuthenticationException("One Time Password needed", this.LoginResult);
+            if (!this.NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + this.LoginResult, this.LoginResult);
             initServerConfig();
             initCategories();
         }
 
         public void LoginOneTimePassword(string oneTimePassword)
         {
-            if (SC21SessionMode)
+            if (this.SC21SessionMode)
             {
                 loginSc21(oneTimePassword);
             }
             else
             {
                 if (oneTimePassword != null) loginSc6Otp(oneTimePassword);
-                if (!NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + LoginResult, LoginResult);
+                if (!this.NoLoginError) throw new ScreenConnectAuthenticationException("Login failed: " + this.LoginResult, this.LoginResult);
             }
             initServerConfig();
             initCategories();
@@ -166,7 +166,7 @@ namespace ScreenConnect.Integration
 
         public void updateAntiforgeryToken()
         {
-            updateAntiforgeryToken(HttpPost(baseUrl + "/Host", string.Empty));
+            updateAntiforgeryToken(HttpPost(this.baseUrl + "/Host", string.Empty));
         }
 
         #endregion Public Methods
@@ -175,7 +175,7 @@ namespace ScreenConnect.Integration
 
         internal void addEventToSession(SCHostSession session, SCHostSessionEventType type, string data)
         {
-            HttpPost(baseUrl + serviceAshx + "/AddEventToSessions", JsonConvert.SerializeObject(new object[] { new object[] { session.category }, new object[] { session.sessionID }, (int)type, data }));
+            HttpPost(this.baseUrl + this.serviceAshx + "/AddEventToSessions", JsonConvert.SerializeObject(new object[] { new object[] { session.category }, new object[] { session.sessionID }, (int)type, data }));
         }
 
         internal string getLaunchScheme(SCHostSession session)
@@ -197,15 +197,15 @@ namespace ScreenConnect.Integration
 
             if (session._token == null)
             {
-                JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
+                JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(this.baseUrl + this.serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
                 session._token = accessTokenInfo.ToString();
             }
 
-            string url = urlScheme + "://";
-            url += hostName + ":";
-            url += relayPort + "/";
+            string url = this.urlScheme + "://";
+            url += this.hostName + ":";
+            url += this.relayPort + "/";
             url += session._sessionID + "/";
-            url += encryptionKey + "/";
+            url += this.encryptionKey + "/";
             url += HttpUtility.UrlEncode(session._token) + "/";
             url += "/"; // r = User Name?
             url += session._type + "/";
@@ -217,16 +217,16 @@ namespace ScreenConnect.Integration
         internal string getLaunchURL(SCHostSession session)
         {
             string appName = "Elsinore.ScreenConnect.WindowsClient.application";
-            if (serverVersionMain >= 5 || serverVersion.StartsWith("ScreenConnect/4.3"))
+            if (this.serverVersionMain >= 5 || this.serverVersion.StartsWith("ScreenConnect/4.3"))
             {
                 appName = "Elsinore.ScreenConnect.Client.application";
             }
-            string url = baseUrl + "/Bin/" + appName + "?";
-            url += "h=" + hostName + "&";
-            url += "p=" + relayPort + "&";
-            url += "k=" + encryptionKey + "&";
+            string url = this.baseUrl + "/Bin/" + appName + "?";
+            url += "h=" + this.hostName + "&";
+            url += "p=" + this.relayPort + "&";
+            url += "k=" + this.encryptionKey + "&";
             url += "s=" + session._sessionID + "&";
-            if (serverVersionMain >= 4)
+            if (this.serverVersionMain >= 4)
             {
                 url += "i=" + HttpUtility.UrlEncode(session._name) + "&";
             }
@@ -236,20 +236,20 @@ namespace ScreenConnect.Integration
             }
             if (session._token == null)
             {
-                if (serverVersionMain > 6)
+                if (this.serverVersionMain > 6)
                 {
-                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
+                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(this.baseUrl + this.serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
                     session._token = accessTokenInfo.ToString();
                 }
                 else
                 {
-                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(baseUrl + serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { new object[] { session.category }, session.sessionID })));
+                    JValue accessTokenInfo = JsonConvert.DeserializeObject<JValue>(HttpPost(this.baseUrl + this.serviceAshx + "/GetAccessToken", JsonConvert.SerializeObject(new object[] { new object[] { session.category }, session.sessionID })));
                     session._token = accessTokenInfo.ToString();
                 }
             }
             url += "n=" + HttpUtility.UrlEncode(session._token) + "&";
             url += "e=" + session._type + "&";
-            if (serverVersionMain > 6)
+            if (this.serverVersionMain > 6)
             {
                 url += "a=None&";
                 url += "r=&";
@@ -261,7 +261,7 @@ namespace ScreenConnect.Integration
 
         internal SCHostSessionDetails getSessionDetails(SCHostSession session)
         {
-            JObject gsd = JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetSessionDetails", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
+            JObject gsd = JsonConvert.DeserializeObject<JObject>(HttpPost(this.baseUrl + this.serviceAshx + "/GetSessionDetails", JsonConvert.SerializeObject(new object[] { session.category, session.sessionID })));
             SCHostSessionDetails details = new SCHostSessionDetails(session);
             try
             {
@@ -328,7 +328,7 @@ namespace ScreenConnect.Integration
             List<SCHostSession> sl = new List<SCHostSession>();
             JObject hsi = getHostSessionInfo(category, mode);
             string sssKey = "sss";
-            if (serverVersionMain >= 5)
+            if (this.serverVersionMain >= 5)
             {
                 sssKey = "Sessions";
             }
@@ -336,7 +336,7 @@ namespace ScreenConnect.Integration
             foreach (JObject session in sss)
             {
                 SCHostSession scsession = new SCHostSession(this, category);
-                if (serverVersionMain >= 5)
+                if (this.serverVersionMain >= 5)
                 {
                     scsession._name = session["Name"].ToString();
                     scsession._sessionID = session["SessionID"].ToString();
@@ -384,7 +384,7 @@ namespace ScreenConnect.Integration
                     }
 
                     JObject clp = session["clp"].Value<JObject>();
-                    if (serverVersion.StartsWith("ScreenConnect/4"))
+                    if (this.serverVersion.StartsWith("ScreenConnect/4"))
                     {
                         scsession._name = clp["i"].Value<string>();
                     }
@@ -402,7 +402,7 @@ namespace ScreenConnect.Integration
                     scsession._custom = custom.ToArray();
                 }
                 string stKey = "st";
-                if (serverVersionMain >= 5)
+                if (this.serverVersionMain >= 5)
                 {
                     stKey = "SessionType";
                 }
@@ -417,7 +417,7 @@ namespace ScreenConnect.Integration
         internal void startHost(SCHostSession session, bool viaScheme = false)
         {
             updateAntiforgeryToken();
-            try { HttpPost(baseUrl + serviceAshx + "/LogInitiatedJoin", JsonConvert.SerializeObject(new object[] { session.sessionID, 1, "(UrlLaunch) ScreenConnectIntegration" })); } catch { }
+            try { HttpPost(this.baseUrl + this.serviceAshx + "/LogInitiatedJoin", JsonConvert.SerializeObject(new object[] { session.sessionID, 1, "(UrlLaunch) ScreenConnectIntegration" })); } catch { }
             if (viaScheme)
             {
                 string url = getLaunchScheme(session);
@@ -450,6 +450,10 @@ namespace ScreenConnect.Integration
             return JsonConvert.SerializeObject(info);
         }
 
+        private string buildHostSessionInfoParamV23(int mode, string category)
+        {
+            return "[{\"HostSessionInfo\":{\"sessionType\":" + mode + ",\"sessionGroupPathParts\":[" + (category != null ? "\"" + category + "\"" : "") + "],\"sessionLimit\":1000},\"ActionCenterInfo\":{}},0]";
+        }
         private string buildHostSessionInfoParamV3(int mode, string category)
         {
             object info = new object[] { mode, category == null ? new string[0] : new string[] { category }, null, null, 0 };
@@ -459,7 +463,7 @@ namespace ScreenConnect.Integration
         private byte[] createAccessSession(string type, string name, params string[] customProperties)
         {
             string url;
-            if (serverVersionMain >= 5)
+            if (this.serverVersionMain >= 5)
             {
                 switch (type)
                 {
@@ -490,9 +494,9 @@ namespace ScreenConnect.Integration
                     default:
                         throw new NotSupportedException("Only types msi, exe, pkg, deb, rpm, sh supported in this version of ScreenConnect");
                 }
-                url += "h=" + hostName + "&";
-                url += "p=" + relayPort + "&";
-                url += "k=" + encryptionKey + "&";
+                url += "h=" + this.hostName + "&";
+                url += "p=" + this.relayPort + "&";
+                url += "k=" + this.encryptionKey + "&";
                 url += "e=Access&y=Guest&";
                 url += "t=" + HttpUtility.UrlEncode(name);
                 foreach (string p in customProperties)
@@ -500,7 +504,7 @@ namespace ScreenConnect.Integration
                     url += "&c=" + HttpUtility.UrlEncode(p);
                 }
             }
-            else if (serverVersion.StartsWith("ScreenConnect/4"))
+            else if (this.serverVersion.StartsWith("ScreenConnect/4"))
             {
                 url = getInstallerUrlV4(type, name, customProperties);
             }
@@ -521,7 +525,7 @@ namespace ScreenConnect.Integration
                 }
             }
             url = url.Replace("\"", string.Empty);
-            return HttpDownload(baseUrl + "/" + url);
+            return HttpDownload(this.baseUrl + "/" + url);
         }
 
         // http://stackoverflow.com/questions/15103513/httpwebresponse-cookies-empty-despite-set-cookie-header-no-redirect
@@ -562,34 +566,38 @@ namespace ScreenConnect.Integration
 
         private JObject getHostSessionInfo(string category, int mode)
         {
-            if (serverVersionMain >= 6)
+            if (this.serverVersionMain >= 23)
             {
-                return JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParamV3(mode, category))); // Mode 2: Access Sessions
+                return (JObject)JsonConvert.DeserializeObject<JObject>(HttpPost(this.baseUrl + this.serviceAshx + "/GetLiveData", buildHostSessionInfoParamV23(mode, category)))["ResponseInfoMap"]["HostSessionInfo"]; // Mode 2: Access Sessions
+            }
+            else if (this.serverVersionMain >= 6)
+            {
+                return JsonConvert.DeserializeObject<JObject>(HttpPost(this.baseUrl + this.serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParamV3(mode, category))); // Mode 2: Access Sessions
             }
             try
             {
-                return JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParam(category)));
+                return JsonConvert.DeserializeObject<JObject>(HttpPost(this.baseUrl + this.serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParam(category)));
             }
             catch
             {
-                return JsonConvert.DeserializeObject<JObject>(HttpPost(baseUrl + serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParamV2(category)));
+                return JsonConvert.DeserializeObject<JObject>(HttpPost(this.baseUrl + this.serviceAshx + "/GetHostSessionInfo", buildHostSessionInfoParamV2(category)));
             }
         }
 
         private string getInstallerUrlV3(bool asMac, bool asMSI, string name)
         {
-            return HttpPost(baseUrl + serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new object[] { asMac, asMSI, name }));
+            return HttpPost(this.baseUrl + this.serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new object[] { asMac, asMSI, name }));
         }
 
         private string getInstallerUrlV4(string type, string name, string[] parameters)
         {
-            string url = HttpPost(baseUrl + serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new object[] { type, name, parameters }));
+            string url = HttpPost(this.baseUrl + this.serviceAshx + "/GetInstallerUrl", JsonConvert.SerializeObject(new object[] { type, name, parameters }));
             return url;
         }
 
         private string getServerVersion()
         {
-            System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl);
+            System.Net.WebRequest req = System.Net.WebRequest.Create(this.baseUrl);
             System.Net.WebResponse resp = req.GetResponse();
             string version = resp.Headers["Server"].Split(' ')[0];
             return version;
@@ -600,7 +608,7 @@ namespace ScreenConnect.Integration
             HttpWebRequest req = (HttpWebRequest)HttpWebRequest.Create(url);
             req.UserAgent = "ScreenConnect Integration Library";
             req.Timeout = 10000;
-            req.Credentials = nc;
+            req.Credentials = this.nc;
             System.Net.WebResponse resp = req.GetResponse();
             if (resp == null) return null;
             Stream respStream = resp.GetResponseStream();
@@ -620,13 +628,13 @@ namespace ScreenConnect.Integration
             if (isLoginRequest) req.AllowAutoRedirect = false;
             req.UserAgent = "ScreenConnect Integration Library";
             req.Timeout = 10000;
-            req.Credentials = nc;
-            if (cookies != null)
+            req.Credentials = this.nc;
+            if (this.cookies != null)
             {
                 req.CookieContainer = new CookieContainer();
-                req.CookieContainer.Add(cookies);
+                req.CookieContainer.Add(this.cookies);
             }
-            if (isLoginRequest && !SC21SessionMode)
+            if (isLoginRequest && !this.SC21SessionMode)
             {
                 req.ContentType = "application/x-www-form-urlencoded";
             }
@@ -635,12 +643,12 @@ namespace ScreenConnect.Integration
                 req.ContentType = "application/json; charset=UTF-8";
             }
             req.Method = "POST";
-            if (antiForgeryToken != null)
+            if (this.antiForgeryToken != null)
             {
-                req.Headers.Add("x-anti-forgery-token", antiForgeryToken);
+                req.Headers.Add("x-anti-forgery-token", this.antiForgeryToken);
                 req.Headers.Add("x-unauthorized-status-code", "403");
             }
-            byte[] bytes = System.Text.Encoding.ASCII.GetBytes(Parameters);
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(Parameters);
             req.ContentLength = bytes.Length;
             System.IO.Stream os = req.GetRequestStream();
             os.Write(bytes, 0, bytes.Length);
@@ -649,16 +657,16 @@ namespace ScreenConnect.Integration
             if (resp == null) return null;
             if (isLoginRequest)
             {
-                try { LoginResult = resp.GetResponseHeader("X-Login-Result"); } catch { }
+                try { this.LoginResult = resp.GetResponseHeader("X-Login-Result"); } catch { }
                 fixCookies(req, resp);
-                cookies = resp.Cookies;
+                this.cookies = resp.Cookies;
             }
             System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
             string respStr = sr.ReadToEnd().Trim();
-            if (serverVersionMain > 6 && isLoginRequest)
+            if (this.serverVersionMain > 6 && isLoginRequest)
             {
-                if (respStr.Contains("Your user account requires an additional authentication step.")) LoginResult = "OneTimePasswordInvalid";
-                if (respStr.Contains("Invalid credentials. Please try again.")) LoginResult = "Invalid credentials";
+                if (respStr.Contains("Your user account requires an additional authentication step.")) this.LoginResult = "OneTimePasswordInvalid";
+                if (respStr.Contains("Invalid credentials. Please try again.")) this.LoginResult = "Invalid credentials";
             }
             respStr = Regex.Replace(respStr, @"\\u([\dA-Fa-f]{4})", v => ((char)Convert.ToInt32(v.Groups[1].Value, 16)).ToString()).Replace("%25", "%");
             return respStr;
@@ -667,7 +675,7 @@ namespace ScreenConnect.Integration
         private void initCategories()
         {
             int[] modes = new int[] { -1 };
-            if (serverVersionMain >= 6)
+            if (this.serverVersionMain >= 6)
             {
                 modes = new int[] { 0, 1, 2 };
             }
@@ -696,7 +704,7 @@ namespace ScreenConnect.Integration
             string nKey = "n";
             string stKey = "st";
             string scKey = "sc";
-            if (serverVersionMain >= 5)
+            if (this.serverVersionMain >= 5)
             {
                 nKey = "Name";
                 stKey = "SessionType";
@@ -705,22 +713,22 @@ namespace ScreenConnect.Integration
             switch (mode)
             {
                 case sessionTypeSupport:
-                    support = new List<SCHostCategory>();
+                    this.support = new List<SCHostCategory>();
                     break;
 
                 case sessionTypeMeet:
-                    meet = new List<SCHostCategory>();
+                    this.meet = new List<SCHostCategory>();
                     break;
 
                 case sessionTypeAccess:
-                    access = new List<SCHostCategory>();
+                    this.access = new List<SCHostCategory>();
                     break;
 
                 default:
 
-                    support = new List<SCHostCategory>();
-                    meet = new List<SCHostCategory>();
-                    access = new List<SCHostCategory>();
+                    this.support = new List<SCHostCategory>();
+                    this.meet = new List<SCHostCategory>();
+                    this.access = new List<SCHostCategory>();
                     break;
             }
             if (sgs[0] is JArray) sgs = (JArray)sgs[0];
@@ -730,9 +738,9 @@ namespace ScreenConnect.Integration
                 int type = category[stKey].Value<int>();
                 int count = category[scKey].Value<int>();
                 List<SCHostCategory> catList = null;
-                if (type == sessionTypeSupport) catList = support;
-                if (type == sessionTypeMeet) catList = meet;
-                if (type == sessionTypeAccess) catList = access;
+                if (type == sessionTypeSupport) catList = this.support;
+                if (type == sessionTypeMeet) catList = this.meet;
+                if (type == sessionTypeAccess) catList = this.access;
                 SCHostCategory cat = new SCHostCategory(this, mode);
                 cat._count = count;
                 cat._name = name;
@@ -743,29 +751,29 @@ namespace ScreenConnect.Integration
         private void initServerConfig()
         {
             string[] instURLSplit;
-            if (serverVersionMain >= 5)
+            if (this.serverVersionMain >= 5)
             {
                 // SC 5 Script Parser Hack
-                string script = HttpPost(baseUrl + "/Script.ashx", string.Empty).Replace('\r', ' ').Replace('\n', ' ');
+                string script = HttpPost(this.baseUrl + "/Script.ashx", string.Empty).Replace('\r', ' ').Replace('\n', ' ');
                 string script_stripped = script.Remove(0, 5);
                 script_stripped = script_stripped.Remove(script_stripped.Length - 1);
                 try
                 {
                     string scheme = script_stripped.Remove(0, script_stripped.IndexOf("instanceUrlScheme") - 1);
                     scheme = scheme.Remove(scheme.IndexOf(",") - 1);
-                    urlScheme = scheme.Split(':')[1].Replace("\"", string.Empty);
+                    this.urlScheme = scheme.Split(':')[1].Replace("\"", string.Empty);
                 }
-                catch { urlScheme = null; }
+                catch { this.urlScheme = null; }
                 string clp = script_stripped.Remove(0, script_stripped.IndexOf("clp") + 5);
                 clp = clp.Remove(clp.IndexOf("}") + 1);
                 JObject SC = JsonConvert.DeserializeObject<JObject>(clp);
-                hostName = SC.GetValue("h").ToString();
-                relayPort = SC.GetValue("p").ToString();
-                encryptionKey = HttpUtility.UrlEncode(SC.GetValue("k").ToString());
+                this.hostName = SC.GetValue("h").ToString();
+                this.relayPort = SC.GetValue("p").ToString();
+                this.encryptionKey = HttpUtility.UrlEncode(SC.GetValue("k").ToString());
             }
             else
             {
-                if (serverVersion.StartsWith("ScreenConnect/4"))
+                if (this.serverVersion.StartsWith("ScreenConnect/4"))
                 {
                     instURLSplit = getInstallerUrlV4("msi", string.Empty, new string[0]).Split(new char[] { '?', '&' });
                 }
@@ -778,9 +786,9 @@ namespace ScreenConnect.Integration
                     string[] kv = kvString.Split('=');
                     if (kv.Length > 1)
                     {
-                        if (kv[0] == "h") hostName = kv[1];
-                        if (kv[0] == "p") relayPort = kv[1];
-                        if (kv[0] == "k") encryptionKey = kv[1];
+                        if (kv[0] == "h") this.hostName = kv[1];
+                        if (kv[0] == "p") this.relayPort = kv[1];
+                        if (kv[0] == "k") this.encryptionKey = kv[1];
                     }
                 }
             }
@@ -788,7 +796,7 @@ namespace ScreenConnect.Integration
 
         private void loginSc6()
         {
-            System.Net.WebRequest req = System.Net.WebRequest.Create(baseUrl + "/Login");
+            System.Net.WebRequest req = System.Net.WebRequest.Create(this.baseUrl + "/Login");
             System.Net.WebResponse resp = req.GetResponse();
             System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream());
             string respStr = sr.ReadToEnd().Trim();
@@ -796,7 +804,7 @@ namespace ScreenConnect.Integration
             // ScreenConnect 21+
             if (respStr.Contains("securityNonce: '',"))
             {
-                SC21SessionMode = true;
+                this.SC21SessionMode = true;
                 loginSc21();
                 return;
             }
@@ -804,31 +812,31 @@ namespace ScreenConnect.Integration
             updateViewstate(respStr);
 
             // Earlier Versions of SC6
-            if (respStr.Contains("ctl00$Main$ctl03")) sc6loginbuttonid = "ctl00$Main$ctl03";
+            if (respStr.Contains("ctl00$Main$ctl03")) this.sc6loginbuttonid = "ctl00$Main$ctl03";
 
             // Later Versions of SC6
-            if (respStr.Contains("ctl00$Main$ctl05")) sc6loginbuttonid = "ctl00$Main$ctl05";
+            if (respStr.Contains("ctl00$Main$ctl05")) this.sc6loginbuttonid = "ctl00$Main$ctl05";
 
             // ScreenConnect 20
-            if (respStr.Contains("ctl00$Main$loginButton")) sc6loginbuttonid = "ctl00$Main$loginButton";
+            if (respStr.Contains("ctl00$Main$loginButton")) this.sc6loginbuttonid = "ctl00$Main$loginButton";
 
             string loginString = string.Empty;
             loginString += "__EVENTARGUMENT=&";
             loginString += "__EVENTTARGET=&";
             loginString += "__LASTFOCUS=&";
-            loginString += "__VIEWSTATE=" + HttpUtility.UrlEncode(aspViewState) + "&";
-            loginString += "__VIEWSTATEGENERATOR=" + HttpUtility.UrlEncode(aspEventValidation) + "&";
-            loginString += HttpUtility.UrlEncode(sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
-            loginString += HttpUtility.UrlEncode("ctl00$Main$passwordBox") + "=" + HttpUtility.UrlEncode(nc.Password) + "&";
-            loginString += HttpUtility.UrlEncode("ctl00$Main$userNameBox") + "=" + HttpUtility.UrlEncode(nc.UserName);
+            loginString += "__VIEWSTATE=" + HttpUtility.UrlEncode(this.aspViewState) + "&";
+            loginString += "__VIEWSTATEGENERATOR=" + HttpUtility.UrlEncode(this.aspEventValidation) + "&";
+            loginString += HttpUtility.UrlEncode(this.sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
+            loginString += HttpUtility.UrlEncode("ctl00$Main$passwordBox") + "=" + HttpUtility.UrlEncode(this.nc.Password) + "&";
+            loginString += HttpUtility.UrlEncode("ctl00$Main$userNameBox") + "=" + HttpUtility.UrlEncode(this.nc.UserName);
             try
             {
-                updateViewstate(HttpPost(baseUrl + "/Login", loginString, true));
+                updateViewstate(HttpPost(this.baseUrl + "/Login", loginString, true));
             }
             catch (TimeoutException)
             {
                 // Retry Login - sometimes takes too long?
-                updateViewstate(HttpPost(baseUrl + "/Login", loginString, true));
+                updateViewstate(HttpPost(this.baseUrl + "/Login", loginString, true));
             }
         }
 
@@ -838,13 +846,13 @@ namespace ScreenConnect.Integration
             string loginString = null;
             if (oneTimePassword == null)
             {
-                loginString = "[\"" + nc.UserName.Replace("\"", "\\\"") + "\",\"" + nc.Password.Replace("\"", "\\\"") + "\",null,null,\"" + nonce + "\"]";
+                loginString = "[\"" + this.nc.UserName.Replace("\"", "\\\"") + "\",\"" + this.nc.Password.Replace("\"", "\\\"") + "\",null,null,\"" + nonce + "\"]";
             }
             else
             {
-                loginString = "[\"" + nc.UserName.Replace("\"", "\\\"") + "\",\"" + nc.Password.Replace("\"", "\\\"") + "\",\"" + oneTimePassword.Replace("\"", "\\\"") + "\",null,\"" + nonce + "\"]";
+                loginString = "[\"" + this.nc.UserName.Replace("\"", "\\\"") + "\",\"" + this.nc.Password.Replace("\"", "\\\"") + "\",\"" + oneTimePassword.Replace("\"", "\\\"") + "\",null,\"" + nonce + "\"]";
             }
-            string loginResult = HttpPost(baseUrl + "/Services/AuthenticationService.ashx/TryLogin", loginString, true);
+            string loginResult = HttpPost(this.baseUrl + "/Services/AuthenticationService.ashx/TryLogin", loginString, true);
             switch (loginResult)
             {
                 case "0":
@@ -853,10 +861,10 @@ namespace ScreenConnect.Integration
                     break;
                 case "11":
                     // OTP Auth required
-                    LoginResult = "OneTimePasswordInvalid";
+                    this.LoginResult = "OneTimePasswordInvalid";
                     break;
                 default:
-                    LoginResult = "Invalid credentials";
+                    this.LoginResult = "Invalid credentials";
                     break;
             }
         }
@@ -883,10 +891,10 @@ namespace ScreenConnect.Integration
             loginString += "__EVENTARGUMENT=&";
             loginString += "__EVENTTARGET=&";
             loginString += "__LASTFOCUS=&";
-            loginString += "__VIEWSTATE=" + HttpUtility.UrlEncode(aspViewState) + "&";
-            loginString += HttpUtility.UrlEncode(sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
+            loginString += "__VIEWSTATE=" + HttpUtility.UrlEncode(this.aspViewState) + "&";
+            loginString += HttpUtility.UrlEncode(this.sc6loginbuttonid) + "=" + HttpUtility.UrlEncode("Login") + "&";
             loginString += HttpUtility.UrlEncode("ctl00$Main$oneTimePasswordBox") + "=" + HttpUtility.UrlEncode(oneTimePassword) + "&";
-            updateViewstate(HttpPost(baseUrl + "/Login?Reason=7", loginString, true));
+            updateViewstate(HttpPost(this.baseUrl + "/Login?Reason=7", loginString, true));
         }
 
         private void updateAntiforgeryToken(string respStr)
@@ -897,7 +905,7 @@ namespace ScreenConnect.Integration
                 string antiForgeryTokenInfo = "\"antiForgeryToken\":\"";
                 int i = respStr.IndexOf(antiForgeryTokenInfo) + antiForgeryTokenInfo.Length;
                 int j = respStr.IndexOf("\"", i);
-                if (i > antiForgeryTokenInfo.Length) antiForgeryToken = respStr.Substring(i, j - i);
+                if (i > antiForgeryTokenInfo.Length) this.antiForgeryToken = respStr.Substring(i, j - i);
             }
             catch { }
         }
@@ -910,13 +918,13 @@ namespace ScreenConnect.Integration
                 string viewStateFlag = "id=\"__VIEWSTATE\" value=\"";
                 int i = respStr.IndexOf(viewStateFlag) + viewStateFlag.Length;
                 int j = respStr.IndexOf("\"", i);
-                aspViewState = respStr.Substring(i, j - i);
+                this.aspViewState = respStr.Substring(i, j - i);
 
                 // get page EventValidation
                 string eventValidationFlag = "id=\"__VIEWSTATEGENERATOR\" value=\"";
                 i = respStr.IndexOf(eventValidationFlag) + eventValidationFlag.Length;
                 j = respStr.IndexOf("\"", i);
-                aspEventValidation = respStr.Substring(i, j - i);
+                this.aspEventValidation = respStr.Substring(i, j - i);
             }
             catch { }
         }
