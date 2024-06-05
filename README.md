@@ -20,4 +20,4 @@ ToDo:
 
 Requirements:
 * Windows OS
-* .NET Framework 2.0
+* .NET Framework 4.5.2
